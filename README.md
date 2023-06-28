@@ -1,6 +1,9 @@
 # SceneReplica
 Code release for SceneReplica paper: [ArXiv](https://arxiv.org/abs/2306.15620) | [Webpage](https://irvlutd.github.io/SceneReplica/)
 
+![](./media/demo.gif)
+
+
 ## Index
 
 1. [Data Setup](#data-setup): Setup the data files, object models and create a ros workspace with source for the different algorithms
