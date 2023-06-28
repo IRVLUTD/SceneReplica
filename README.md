@@ -6,7 +6,7 @@ Code release for SceneReplica paper: [ArXiv](https://arxiv.org/abs/2306.15620) |
 1. [Data Setup](#data-setup): Setup the data files, object models and create a ros workspace with source for the different algorithms
 2. [Scene Setup](#reference-scene-setup): Setup the Scene in either simulation or real world
 3. [Experiments](#experiments): Run experiments from different algorithms listed 
-4. [Misc](#misc): Video recording, ROS workspace setup
+4. [Misc](#misc): Scene Generation, Video recording, ROS workspace setup
 
 # Data Setup
 
@@ -172,6 +172,10 @@ Check the `env_cgnet.yml` env file in the reference repo.
 
 
 # Misc
+
+## Scene Generation
+We utilize a Gazebo simulation envrionment to generate the scenes. The `gazebo_models` meshes and offline grasp dataset (`grasp_data`) are used in this process. All the scripts for scene generation and final scene selection are located in `src/scene_generation/` with a detailed [README](src/scene_generation/README.md) for the process.
+
 
 ## Usage of the Video Recorder    
 1. Launch the RealSense camera
