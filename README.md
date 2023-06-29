@@ -64,6 +64,20 @@ Setup the data folders as described and follow the steps below:
     ```Shell
     rosrun rviz rviz -d config/scene_setup.rviz
     ```
+**Details about real world setup**:
+- We use a Fetch Mobile Manipulator for the experiments
+- Table height used for the experiments was 0.75 meters
+  - Using a height adjustable table is preferred to ensure this match
+- Sufficient lighting for the scene is also assumed. The performance of perception algorithms may get affected with different lighting
+
+**Usage with other robots**:
+The metadata files (specifically the color scene-overlay reference images) are obtained using a Fetch robot in simulation. So the same images will not work for scene replication unless your robot's camera (either internal or external camera) have the same pose. In order to recreate the same scene and generate new overlay images for your setup, you can follow these steps:
+
+- Recreate the setup in simulation where you can fix the camera (same pose as to be used in real world). If possible, try to match Fetch robot setup which we use (reference: `src/setup_robot.py` which adjusts the camera lookat position)
+- Spawn the desired in simulation using `setup_scene_sim.py` reference as a reference. This should spawn the objects in correct locations in the simulation.
+- Use the `src/scene_generation/save_pose_results.py` as a reference to save your own version of overlay images. They might look a bit different but the end goal of recreating the scene in real world should work as before.
+- Once you have the overlay images, the entire pipeline works as document where you re-create the scene in real world using the overlay images (make sure you are not using the ones for Fetch robot). This assumes that the camera pose in real world is same as the one used in simulation.
+
 
 
 ## Gazebo (Simulation) Usage
