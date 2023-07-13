@@ -23,6 +23,7 @@ As an example it can be something simple like: `~/Datasets/benchmarking/`
       |--grasp_data
          |--refined_grasps
             |-- fetch_gripper-{object_name}.json
+         |--sgrasps.pk
       |--final_scenes
          |--scene_data/
             |-- scene_id_*.pk scene pickle files
@@ -36,6 +37,7 @@ As an example it can be something simple like: `~/Datasets/benchmarking/`
 Follow the steps below, download and extract the zip files:
 
 - Download and extract Graspit generated grasps for YCB models: [`grasp_data.zip`](https://utdallas.box.com/s/jz3fin85v7gyv8ls1tqcs95qoye569g4) as `grasp_data/`
+- Download the successful grasps file :  ['sgrasps.pk'](https://utdallas.box.com/s/ptv8ms4l1kl13kwvvx8w2nn8i7e38stq)
 - Download and extract Scenes Data : [`final_scenes.zip`](https://utdallas.box.com/s/47foq3nri7ob3gym853ynwrenfvv6oix) as `final_scenes/`
 - [*Optional*] Download and extract YCB models for gazebo (using `textured_simple` meshes): [`gazebo_models_all_simple.zip`](https://utdallas.box.com/v/scenereplica-gazebo-models)
   - Only needed if you want to play around with the YCB models in Gazebo simulation
