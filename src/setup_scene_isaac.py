@@ -4,6 +4,7 @@ import sys
 from scipy.io import loadmat
 import rospy
 import numpy as np
+import time
 
 # isaac
 import carb
@@ -24,13 +25,11 @@ from omni.isaac.core import World
 from omni.isaac.core.articulations import Articulation
 from omni.isaac.core.utils.types import ArticulationAction
 from omni.isaac.core.utils import extensions, stage, viewports
-from omni.isaac.core.prims.rigid_prim import RigidPrim, RigidPrimView    
-from omni.isaac.core.prims.geometry_prim import GeometryPrim
+from omni.isaac.core.prims.rigid_prim import RigidPrimView
 
 # SceneReplica
 sys.path.append("./utils/")
 from utils.utils_scene import load_scene
-from utils_control import FollowTrajectoryClient
 from ros_utils import convert_standard_to_rosqt
 
 
@@ -52,6 +51,13 @@ def make_args():
         default="final_scenes",
         help="Path to data dir",
     )
+    parser.add_argument(
+        "-i",
+        "--scene_index",
+        type=int,
+        default=0,
+        help="Index for the scene to be created",
+    )    
     args = parser.parse_args()
     return args
 
@@ -83,11 +89,18 @@ def default_pose(robot):
 def main(args):
     data_dir = args.data_dir
     scene_dir = args.scene_dir
+    scene_index = args.scene_index
     models_path = os.path.join(data_dir, "models")
     scenes_path = os.path.join(data_dir, scene_dir, "scene_data")
     if not os.path.exists(scenes_path):
         print(f"Path to scenes files does not exist!: {scenes_path}")
         exit(0)
+    # Read in the selected scene ids
+    scenes_list_f = os.path.join(data_dir, scene_dir, "scene_ids.txt")
+    with open(scenes_list_f, "r") as f:
+        sel_scene_ids = [int(x) for x in f.read().split()]
+    scene_id = sel_scene_ids[scene_index]
+    print('Setting up Scene ', scene_id)
 
     # enable ROS bridge extension
     extensions.enable_extension("omni.isaac.ros_bridge")
@@ -158,15 +171,6 @@ def main(args):
         print(e)
     simulation_app.update()
 
-    # add table
-    asset_path = os.path.join(models_path, "cafe_table_org/cafe_table_org/cafe_table_org.usd")
-    stage.add_reference_to_stage(usd_path=asset_path, prim_path=TABLE_STAGE_PATH)
-    world.scene.add(GeometryPrim(prim_path=TABLE_STAGE_PATH, name="table"))
-    table_position = np.array([0.8, 0, 0.1]).reshape((1, 3))
-    table_prim = RigidPrim(prim_path=TABLE_STAGE_PATH, position = table_position)     
-
-    simulation_app.update() 
-
     # need to initialize physics getting any articulation..etc
     world.initialize_physics()
 
@@ -176,40 +180,24 @@ def main(args):
     robot.apply_action(action)
 
     world.play()
-
-    while simulation_app.is_running():
-
+    # move the robot by 200 steps first
+    for step in range(200):
         # Run with a fixed step size
         world.step(render=True)
-
         # Tick the Publish/Subscribe JointState, Publish TF and Publish Clock nodes each frame
         og.Controller.set(og.Controller.attribute("/ActionGraph/OnImpulseEvent.state:enableImpulse"), True)
 
-    world.stop()
-    simulation_app.close() 
+    # add table
+    asset_path = os.path.join(models_path, "cafe_table_org/cafe_table_org/cafe_table_org.usd")
+    stage.add_reference_to_stage(usd_path=asset_path, prim_path=TABLE_STAGE_PATH)
+    table_position = np.array([0.8, 0, 0]).reshape((1, 3))
+    table_rigid_prim_view = RigidPrimView(prim_paths_expr=TABLE_STAGE_PATH + "/baseLink")
+    world.scene.add(table_rigid_prim_view)
+    table_rigid_prim_view.set_world_poses(positions=table_position)
+    simulation_app.update()
 
-    return
-
-    z_offset = -0.03  # difference between Real World and Gazebo table
-    table_position = [0.8, 0, z_offset]
-    objs.add_object(
-        "cafe_table_org",
-        [*table_position, 0, 0, 0, 1],
-    )
-
-    # Read in the selected scene ids
-    scenes_list_f = os.path.join(data_dir, scene_dir, "scene_ids.txt")
-    with open(scenes_list_f, "r") as f:
-        sel_scene_ids = [int(x) for x in f.read().split()]
-
+    # set up YCB objects
     while True:
-        # for scene_id in sel_scene_ids:
-        scene_id = input("Please provide the scene id: ")
-        scene_id = int(scene_id)
-        if scene_id not in sel_scene_ids:
-            print("Provided scene id not in the list of selected scene ids")
-            print(f"Valid ids: {sel_scene_ids}")
-            continue
         print(f"-----------Scene:{scene_id}---------------")
         scene_file = os.path.join(scenes_path, f"scene_id_{scene_id}.pk")
         if not os.path.exists(scene_file):
@@ -221,30 +209,43 @@ def main(args):
         meta_f = "meta-%06d.mat" % scene_id
         meta = loadmat(os.path.join(data_dir, scene_dir, "metadata", meta_f))
         meta_obj_names = meta["object_names"]
-        meta_poses = {}
+        num = len(meta_obj_names)
+        
+        positions = np.zeros((num ,3), dtype=np.float32)
+        orientations = np.zeros((num ,4), dtype=np.float32)
         for i, obj in enumerate(meta_obj_names):
-            meta_poses[obj] = convert_standard_to_rosqt(meta["poses"][i])
-        print(f"Objects: {[obj for obj in scene]}---")
-        # for obj, pose in scene.items():
-        for obj, pose in meta_poses.items():
             objname = obj.strip()
-            objs.add_object(objname, pose)
-            rospy.sleep(2)
+            pose = meta["poses"][i]
+            positions[i, :] = pose[:3]
+            orientations[i, :] = pose[3:]
+
+            filename = os.path.join(objname, objname, objname + ".usd")
+            asset_path = os.path.join(models_path, filename)
+            obj_prim_path = "/YCB_%d" % i
+            print(asset_path, obj_prim_path)
+            stage.add_reference_to_stage(usd_path=asset_path, prim_path=obj_prim_path)
+            # world.scene.add(GeometryPrim(prim_path=obj_prim_path, name=obj_prim_path))
+
+            print(positions[i], orientations[i])
+            rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path + "/baseLink", name=obj_prim_path)
+            world.scene.add(rigid_prim_view)
+            rigid_prim_view.set_world_poses(positions=positions[i].reshape((1,3)), orientations=orientations[i].reshape((1, 4)))
+        simulation_app.update()
+
         objects_in_scene = [obj for obj in scene.keys()]
         print(objects_in_scene)
+        break
 
-        confirmation = input("Next scene? y or n.....")
-        for obj in scene:
-            objs.delete_object(obj)
-        if confirmation == "y":
-            continue
-        else:
-            break
-    # Deleting cafe table
-    objs.delete_object("cafe_table_org")
+    while simulation_app.is_running():
 
+        # Run with a fixed step size
+        world.step(render=True)
 
-   
+        # Tick the Publish/Subscribe JointState, Publish TF and Publish Clock nodes each frame
+        og.Controller.set(og.Controller.attribute("/ActionGraph/OnImpulseEvent.state:enableImpulse"), True)
+
+    world.stop()
+    simulation_app.close() 
 
 
 if __name__ == "__main__":
