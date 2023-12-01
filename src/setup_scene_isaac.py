@@ -221,10 +221,9 @@ def main(args):
 
             filename = os.path.join(objname, objname, objname + ".usd")
             asset_path = os.path.join(models_path, filename)
-            obj_prim_path = "/YCB_%d" % i
+            obj_prim_path = "/YCB_" + objname
             print(asset_path, obj_prim_path)
             stage.add_reference_to_stage(usd_path=asset_path, prim_path=obj_prim_path)
-            # world.scene.add(GeometryPrim(prim_path=obj_prim_path, name=obj_prim_path))
 
             print(positions[i], orientations[i])
             rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path + "/baseLink", name=obj_prim_path)
