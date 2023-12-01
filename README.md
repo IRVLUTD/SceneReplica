@@ -234,7 +234,7 @@ We used the following steps to setup our ROS workspace. Install the following de
 
     `git clone https://github.com/ros/urdf_tutorial`
 
-    `git clone -b devel https://github.com/IRVLUTD/R-Bench.git`
+    `git clone https://github.com/IRVLUTD/SceneReplica`
   
   If you see missing package erros: Use `apt install` for `ros-noetic-robot-controllers` and `ros-noetic-rgbd-launch`.
   
