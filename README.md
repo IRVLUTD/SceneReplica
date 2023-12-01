@@ -114,7 +114,7 @@ The metadata files (specifically the color scene-overlay reference images) are o
 1. Setup the desired scene in Isaac Sim:
    ```Shell
    cd src/
-   ./$ISAAC_ROOT/python setup_scene_isaac.py --scene_index $scene_inedx
+   ./$ISAAC_ROOT/python setup_scene_isaac.py --scene_index $scene_index
    ```
 
 ![](./media/isaac_scene.png)
