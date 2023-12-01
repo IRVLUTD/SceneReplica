@@ -19,7 +19,7 @@ As an example it can be something simple like: `~/Datasets/benchmarking/`
 ```
 ~/Datasets
    |--benchmarking
-      |--gazebo_models_all_simple/
+      |--models/
       |--grasp_data
          |--refined_grasps
             |-- fetch_gripper-{object_name}.json
@@ -42,10 +42,10 @@ Follow the steps below, download and extract the zip files:
   - Grasps that provide a valid motion plan are saved w.r.t that object and corresponding scene. 
   - the algorithm first iterates throught these successful grasps and the rest next, in the actual experiments. 
 - Download and extract Scenes Data : [`final_scenes.zip`](https://utdallas.box.com/s/47foq3nri7ob3gym853ynwrenfvv6oix) as `final_scenes/`
-- [*Optional*] Download and extract YCB models for gazebo (using `textured_simple` meshes): [`gazebo_models_all_simple.zip`](https://utdallas.box.com/v/scenereplica-gazebo-models)
-  - Only needed if you want to play around with the YCB models in Gazebo simulation
+- [*Optional*] Download and extract YCB models for gazebo and Isaac Sim (using `textured_simple` meshes): [`models.zip`](https://utdallas.box.com/s/zkt115qz5d5or0h1ehkzafnut8of4571)
+  - Only needed if you want to play around with the YCB models in Gazebo or Isaac Sim simulation
   - This already includes the edited model for cafe table under the name `cafe_table_org`
-  - Create a symlink to the gazebo models into your Fetch Gazebo src/models/: `~/src/fetch_gazebo/fetch_gazebo/models`
+  - For Gazebo, create a symlink to the gazebo models into your Fetch Gazebo src/models/: `~/src/fetch_gazebo/fetch_gazebo/models`
 
 
 # Reference Scene Setup
@@ -89,7 +89,7 @@ The metadata files (specifically the color scene-overlay reference images) are o
 
 [Optional]
 
-0. Download the Gazebo models of YCB objects as described above
+0. Download the models of YCB objects as described above
 
 1. launch the tabletop ycb scene with only the robot
     ```Shell
@@ -104,6 +104,20 @@ The metadata files (specifically the color scene-overlay reference images) are o
    Preferred that all data is under `~/Datasets/benchmarking/{scene_dir}/`(e.g. "final_scenes"). 
    It runs in a loop and asks you to enter the scene id at each iteration. Loads
    the objects in gazebo and waits for user confirmation before next scene.
+
+## NVIDIA Isaac Sim (Simulation) Usage
+
+[Optional]
+
+0. Download the models of YCB objects as described above, and make sure you have [isaac_sim](https://developer.nvidia.com/isaac-sim) correctly installed
+  
+1. Setup the desired scene in Isaac Sim:
+   ```Shell
+   cd src/
+   ./$ISAAC_ROOT/python setup_scene_isaac.py --scene_index $scene_inedx
+   ```
+
+![](./media/isaac_scene.png)
 
 # Experiments
 
