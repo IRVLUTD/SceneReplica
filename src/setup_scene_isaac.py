@@ -2,16 +2,15 @@ import os
 import argparse
 import sys
 from scipy.io import loadmat
-import rospy
 import numpy as np
-import time
 
 # isaac
 import carb
 from omni.isaac.kit import SimulationApp
 
-FETCH_STAGE_PATH = "/Fetch"
-TABLE_STAGE_PATH = "/Table"
+FETCH_STAGE_PATH = "/World/Fetch"
+TABLE_STAGE_PATH = "/World/Table"
+CAMERA_STAGE_PATH = FETCH_STAGE_PATH + "/head_camera_rgb_frame/Camera"
 CONFIG = {"renderer": "RayTracedLighting", "headless": False}
 
 # set up isaac environment
@@ -19,6 +18,7 @@ simulation_app = SimulationApp(CONFIG)
 
 # Example ROS bridge sample demonstrating the manual loading of stages
 # and creation of ROS components
+import omni
 import omni.graph.core as og
 import usdrt.Sdf
 from omni.isaac.core import World
@@ -30,7 +30,6 @@ from omni.isaac.core.prims.rigid_prim import RigidPrimView
 # SceneReplica
 sys.path.append("./utils/")
 from utils.utils_scene import load_scene
-from ros_utils import convert_standard_to_rosqt
 
 
 def make_args():
@@ -83,7 +82,7 @@ def default_pose(robot):
     # move arm
     index = [5, 7, 8, 9, 10, 11, 12]
     joint_command[index] = [1.32, 0.7, 0.0, -2.0, 0.0, -0.57, 0.0]
-    return joint_command    
+    return joint_command
 
 
 def main(args):
@@ -130,9 +129,17 @@ def main(args):
 
     simulation_app.update()
 
+    ############### Calling Camera publishing functions ###############
+    # stage_usd = omni.usd.get_context().get_stage()
+    # OpenCV camera matrix and width and height of the camera sensor, from the calibration file
+    # https://docs.omniverse.nvidia.com/isaacsim/latest/features/sensors_simulation/isaac_sim_sensors_camera.html?highlight=set%20camera%20parameter#calibrated-camera-sensors
+    width, height = 640, 480
+    viewport_api = omni.kit.viewport.utility.get_active_viewport()
+    viewport_api.set_texture_resolution((width, height))
+
     # Creating a action graph with ROS component nodes
     try:
-        og.Controller.edit(
+        (ros_camera_graph, _, _, _) = og.Controller.edit(
             {"graph_path": "/ActionGraph", "evaluator_name": "execution"},
             {
                 og.Controller.Keys.CREATE_NODES: [
@@ -143,6 +150,12 @@ def main(args):
                     ("ArticulationController", "omni.isaac.core_nodes.IsaacArticulationController"),
                     ("PublishTF", "omni.isaac.ros_bridge.ROS1PublishTransformTree"),
                     ("PublishClock", "omni.isaac.ros_bridge.ROS1PublishClock"),
+                    ("createViewport", "omni.isaac.core_nodes.IsaacCreateViewport"),
+                    ("getRenderProduct", "omni.isaac.core_nodes.IsaacGetViewportRenderProduct"),
+                    ("setCamera", "omni.isaac.core_nodes.IsaacSetCameraOnRenderProduct"),
+                    ("cameraHelperRgb", "omni.isaac.ros_bridge.ROS1CameraHelper"),
+                    ("cameraHelperInfo", "omni.isaac.ros_bridge.ROS1CameraHelper"),
+                    ("cameraHelperDepth", "omni.isaac.ros_bridge.ROS1CameraHelper"),                    
                 ],
                 og.Controller.Keys.CONNECT: [
                     ("OnImpulseEvent.outputs:execOut", "PublishJointState.inputs:execIn"),
@@ -157,6 +170,17 @@ def main(args):
                     ("SubscribeJointState.outputs:positionCommand", "ArticulationController.inputs:positionCommand"),
                     ("SubscribeJointState.outputs:velocityCommand", "ArticulationController.inputs:velocityCommand"),
                     ("SubscribeJointState.outputs:effortCommand", "ArticulationController.inputs:effortCommand"),
+                    ("OnImpulseEvent.outputs:execOut", "createViewport.inputs:execIn"),                    
+                    ("createViewport.outputs:execOut", "getRenderProduct.inputs:execIn"),
+                    ("createViewport.outputs:viewport", "getRenderProduct.inputs:viewport"),
+                    ("getRenderProduct.outputs:execOut", "setCamera.inputs:execIn"),
+                    ("getRenderProduct.outputs:renderProductPath", "setCamera.inputs:renderProductPath"),
+                    ("setCamera.outputs:execOut", "cameraHelperRgb.inputs:execIn"),
+                    ("setCamera.outputs:execOut", "cameraHelperInfo.inputs:execIn"),
+                    ("setCamera.outputs:execOut", "cameraHelperDepth.inputs:execIn"),
+                    ("getRenderProduct.outputs:renderProductPath", "cameraHelperRgb.inputs:renderProductPath"),
+                    ("getRenderProduct.outputs:renderProductPath", "cameraHelperInfo.inputs:renderProductPath"),
+                    ("getRenderProduct.outputs:renderProductPath", "cameraHelperDepth.inputs:renderProductPath"),                    
                 ],
                 og.Controller.Keys.SET_VALUES: [
                     # Setting the /Fetch target prim to Articulation Controller node
@@ -164,11 +188,25 @@ def main(args):
                     ("ArticulationController.inputs:robotPath", FETCH_STAGE_PATH),
                     ("PublishJointState.inputs:targetPrim", [usdrt.Sdf.Path(FETCH_STAGE_PATH)]),
                     ("PublishTF.inputs:targetPrims", [usdrt.Sdf.Path(FETCH_STAGE_PATH)]),
+                    ("createViewport.inputs:viewportId", 0),
+                    ("cameraHelperRgb.inputs:frameId", "sim_camera"),
+                    ("cameraHelperRgb.inputs:topicName", "head_camera/rgb/image_raw"),
+                    ("cameraHelperRgb.inputs:type", "rgb"),
+                    ("cameraHelperInfo.inputs:frameId", "sim_camera"),
+                    ("cameraHelperInfo.inputs:topicName", "head_camera/rgb/camera_info"),
+                    ("cameraHelperInfo.inputs:type", "camera_info"),
+                    ("cameraHelperDepth.inputs:frameId", "sim_camera"),
+                    ("cameraHelperDepth.inputs:topicName", "head_camera/depth_registered/image_raw"),
+                    ("cameraHelperDepth.inputs:type", "depth"),
+                    ("setCamera.inputs:cameraPrim", [usdrt.Sdf.Path(CAMERA_STAGE_PATH)]),                    
                 ],
             },
         )
     except Exception as e:
         print(e)
+
+    # Run the ROS Camera graph once to generate ROS image publishers in SDGPipeline
+    og.Controller.evaluate_sync(ros_camera_graph)     
     simulation_app.update()
 
     # need to initialize physics getting any articulation..etc
@@ -190,6 +228,7 @@ def main(args):
     # add table
     asset_path = os.path.join(models_path, "cafe_table_org/cafe_table_org/cafe_table_org.usd")
     stage.add_reference_to_stage(usd_path=asset_path, prim_path=TABLE_STAGE_PATH)
+    # z_offset = -0.03  # difference between Real World and Gazebo table
     table_position = np.array([0.8, 0, 0]).reshape((1, 3))
     table_rigid_prim_view = RigidPrimView(prim_paths_expr=TABLE_STAGE_PATH + "/baseLink")
     world.scene.add(table_rigid_prim_view)
@@ -221,7 +260,7 @@ def main(args):
 
             filename = os.path.join(objname, objname, objname + ".usd")
             asset_path = os.path.join(models_path, filename)
-            obj_prim_path = "/YCB_" + objname
+            obj_prim_path = "/World/YCB_" + objname
             print(asset_path, obj_prim_path)
             stage.add_reference_to_stage(usd_path=asset_path, prim_path=obj_prim_path)
 
