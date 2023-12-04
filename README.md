@@ -89,7 +89,7 @@ The metadata files (specifically the color scene-overlay reference images) are o
 
 [Optional]
 
-0. Download the models of YCB objects as described above
+0. Download the models of YCB objects as described above. Make sure creating a symlink to the gazebo models into your Fetch Gazebo src/models/: `~/src/fetch_gazebo/fetch_gazebo/models`
 
 1. launch the tabletop ycb scene with only the robot
     ```Shell
@@ -104,6 +104,8 @@ The metadata files (specifically the color scene-overlay reference images) are o
    Preferred that all data is under `~/Datasets/benchmarking/{scene_dir}/`(e.g. "final_scenes"). 
    It runs in a loop and asks you to enter the scene id at each iteration. Loads
    the objects in gazebo and waits for user confirmation before next scene.
+
+![](./media/gazebo_scene.png)   
 
 ## NVIDIA Isaac Sim (Simulation) Usage
 

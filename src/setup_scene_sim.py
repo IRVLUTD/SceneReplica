@@ -40,7 +40,7 @@ def main(args):
         print(f"Path to scenes files does not exist!: {scenes_path}")
         exit(0)
 
-    models_path = os.path.join(data_dir, "gazebo_models_all_simple")
+    models_path = os.path.join(data_dir, "models")
     objs = ObjectService(models_base_path=models_path)
     rospy.init_node("VizSceneSim")
     torso_action = FollowTrajectoryClient("torso_controller", ["torso_lift_joint"])
