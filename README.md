@@ -105,7 +105,7 @@ The metadata files (specifically the color scene-overlay reference images) are o
    It runs in a loop and asks you to enter the scene id at each iteration. Loads
    the objects in gazebo and waits for user confirmation before next scene.
 
-<img src="./media/gazebo_scene.png" alt="gazebo_scene" style="width:800px;"/> 
+<img src="./media/gazebo_scene.png" alt="gazebo_scene" style="width:400px;"/> 
 
 ## NVIDIA Isaac Sim (Simulation) Usage
 
