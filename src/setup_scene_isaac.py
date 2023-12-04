@@ -139,7 +139,7 @@ def main(args):
 
     # Creating a action graph with ROS component nodes
     try:
-        (ros_camera_graph, _, _, _) = og.Controller.edit(
+        (ros_camera_graph, nodes, _, _) = og.Controller.edit(
             {"graph_path": "/ActionGraph", "evaluator_name": "execution"},
             {
                 og.Controller.Keys.CREATE_NODES: [
@@ -204,6 +204,7 @@ def main(args):
         )
     except Exception as e:
         print(e)
+    tf_int_attr = og.Controller.attribute("inputs:targetPrims", nodes[5])
 
     # Run the ROS Camera graph once to generate ROS image publishers in SDGPipeline
     og.Controller.evaluate_sync(ros_camera_graph)     
@@ -220,10 +221,7 @@ def main(args):
     world.play()
     # move the robot by 200 steps first
     for step in range(200):
-        # Run with a fixed step size
         world.step(render=True)
-        # Tick the Publish/Subscribe JointState, Publish TF and Publish Clock nodes each frame
-        og.Controller.set(og.Controller.attribute("/ActionGraph/OnImpulseEvent.state:enableImpulse"), True)
 
     # add table
     asset_path = os.path.join(models_path, "cafe_table_org/cafe_table_org/cafe_table_org.usd")
@@ -252,22 +250,28 @@ def main(args):
         
         positions = np.zeros((num ,3), dtype=np.float32)
         orientations = np.zeros((num ,4), dtype=np.float32)
+        tf_paths = [usdrt.Sdf.Path(FETCH_STAGE_PATH)]
         for i, obj in enumerate(meta_obj_names):
             objname = obj.strip()
             pose = meta["poses"][i]
             positions[i, :] = pose[:3]
             orientations[i, :] = pose[3:]
 
-            filename = os.path.join(objname, objname, objname + ".usd")
+            filename = os.path.join(objname, objname + ".usd")
             asset_path = os.path.join(models_path, filename)
             obj_prim_path = "/World/YCB_" + objname
             print(asset_path, obj_prim_path)
             stage.add_reference_to_stage(usd_path=asset_path, prim_path=obj_prim_path)
 
             print(positions[i], orientations[i])
-            rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path + "/baseLink", name=obj_prim_path)
+            rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path + "/object_" + objname + "_base_link", name=obj_prim_path)
             world.scene.add(rigid_prim_view)
             rigid_prim_view.set_world_poses(positions=positions[i].reshape((1,3)), orientations=orientations[i].reshape((1, 4)))
+            tf_paths.append(usdrt.Sdf.Path(obj_prim_path))
+
+        # set tf publisher
+        print(tf_paths)
+        og.DataView.set(attribute=tf_int_attr, value=tf_paths)
         simulation_app.update()
 
         objects_in_scene = [obj for obj in scene.keys()]
