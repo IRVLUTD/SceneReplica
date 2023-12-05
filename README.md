@@ -119,6 +119,15 @@ The metadata files (specifically the color scene-overlay reference images) are o
    ./$ISAAC_ROOT/python setup_scene_isaac.py --scene_index $scene_index
    ```
 
+2. To use MoveIt with Isaac Sim for the Fetch robot, download and setup the [isaac_sim_moveit](https://github.com/IRVLUTD/isaac_sim_moveit) package. Start the controllers and the MoveIt by
+    ```Shell
+    cd isaac_sim_moveit/launch
+    roslaunch fetch_isaac_controllers.launch
+    roslaunch fetch_isaac_moveit.launch
+    ```
+
+3. Try the model-based grasping as described below in Isaac Sim
+
 ![](./media/isaac_scene.png)
 
 # Experiments
@@ -135,7 +144,7 @@ The metadata files (specifically the color scene-overlay reference images) are o
 
 2. Once verified, `cd src/` and you can start the grasping script: Run `python bench_model_based_grasping.py`. See its command line args for more info.
 
-- `--pose_method` : From {"gazebo", "posecnn", "poserbpf"}
+- `--pose_method` : From {"gazebo", "isaac", "posecnn", "poserbpf"}
 - `--obj_order` : From {"random", "nearest_first"}
 - `--scene_idx` : Scene id for which you'll test the algorithm
 

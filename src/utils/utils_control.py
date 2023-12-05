@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import rospy
 import actionlib
@@ -42,7 +43,11 @@ class PointHeadClient(object):
             "head_controller/point_head", PointHeadAction
         )
         rospy.loginfo("Waiting for head_controller...")
-        self.client.wait_for_server()
+        self.success = self.client.wait_for_server(timeout = rospy.Duration(3.0))
+        if (self.success is False):
+            rospy.loginfo("no point head controller available")
+        else:
+            rospy.loginfo("Use head_controller/point_head")
 
     def look_at(self, x, y, z, frame, duration=1.0):
         """

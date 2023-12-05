@@ -134,18 +134,18 @@ if __name__ == "__main__":
     moveit_commander.roscpp_initialize(sys.argv)
     group_grp = moveit_commander.MoveGroupCommander("gripper")
     gripper = Gripper(group_grp)
-    while True:
-        print(gripper.get_gripper_state())
-    # if args.close:
-    #     gripper.close(60)
-    #     print("gripper now closed")
-    #     if use_delay:
-    #         time.sleep(time_delay)
-    # elif args.open:
-    #     gripper.open()
-    #     print("gripper now open")
-    #     if use_delay:
-    #         time.sleep(time_delay)
+    # while True:
+    #     print(gripper.get_gripper_state())
+    if args.close:
+        gripper.close(60)
+        print("gripper now closed")
+        if use_delay:
+            time.sleep(time_delay)
+    elif args.open:
+        gripper.open()
+        print("gripper now open")
+        if use_delay:
+            time.sleep(time_delay)
 
     """
     gripper.close(35)

@@ -262,6 +262,8 @@ def get_pose(object_name: str, pose_method: str):
     """
     if pose_method == "gazebo":
         return get_pose_gazebo(object_name)
+    elif pose_method == "isaac":
+        return get_pose_isaac(object_name)    
     elif pose_method == "posecnn":
         return get_pose_posecnn(object_name)
     elif pose_method == "poserbpf":
@@ -318,6 +320,17 @@ def get_pose_poserbpf(object_name: str):
     # Example: "poserbpf/00_003_cracker_box_00"
     poserbpf_topic_name = f"poserbpf/00_{object_name}_00"  # f"00_{object_name}_raw"
     RT_obj = get_tf_pose(poserbpf_topic_name, "base_link")
+    return RT_obj
+
+
+def get_pose_isaac(object_name: str):
+    """
+    Queries the Isaac Sim object topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "object_003_cracker_box_base_link"
+    isaac_topic_name = f"object_{object_name}_base_link"
+    RT_obj = get_tf_pose(isaac_topic_name, "base_link")
     return RT_obj
 
 
@@ -406,7 +419,7 @@ def make_args():
         "--pose_method",
         type=str,
         required=True,
-        help='Specify the object pose estimation method: "gazebo", "poserbpf", "posecnn"',
+        help='Specify the object pose estimation method: "gazebo", "poserbpf", "posecnn", "isaac"',
     )
 
     parser.add_argument(
@@ -448,7 +461,7 @@ def make_args():
 
 
 if __name__ == "__main__":
-    VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn"}
+    VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac"}
 
     args = make_args()
     table_height = args.table_height
@@ -481,7 +494,7 @@ if __name__ == "__main__":
         logger.error("Incorrect option for object ordering. See help!")
         sys.exit(0)
 
-    model_dir = os.path.join(args.data_dir, "gazebo_models_all_simple")
+    model_dir = os.path.join(args.data_dir, "models")
     grasp_dir = os.path.join(args.data_dir, "grasp_data", "refined_grasps")
     scene_dir = os.path.join(args.data_dir, args.scene_dir)
     grasp_order_f = os.path.join(scene_dir, args.sgrasp_file)
@@ -503,7 +516,7 @@ if __name__ == "__main__":
     print(f"Grasping in following order: {object_order}")
     if pose_method not in VALID_POSE_METHODS:
         print(
-            f"Incorrect Pose method specified: {args.pose_method}. Should be either: gazebo, poserbpf or posecnn"
+            f"Incorrect Pose method specified: {args.pose_method}. Should be either: gazebo, isaac, poserbpf or posecnn"
         )
         exit(0)
     experiment_data = {}
@@ -528,9 +541,9 @@ if __name__ == "__main__":
     tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
     tf_listener = tf2_ros.TransformListener(tf_buffer)
     image_listener = ImageListener()
+
     # Setup clients
     torso_action = FollowTrajectoryClient("torso_controller", ["torso_lift_joint"])
-    head_action = PointHeadClient()
     # Raise the torso using just a controller
     rospy.loginfo("Raising torso...")
     torso_action.move_to(
@@ -538,13 +551,23 @@ if __name__ == "__main__":
             0.4,
         ]
     )
+    rospy.loginfo("Raising torso...done")
+
     # look at table
-    head_action.look_at(0.45, 0, table_height, "base_link")
+    head_action = PointHeadClient()
+    rospy.loginfo("Pointing head...")
+    if head_action.success:
+        head_action.look_at(0.45, 0, table_height, "base_link")
+    else:
+        head_action = FollowTrajectoryClient("head_controller", ["head_pan_joint", "head_tilt_joint"])
+        head_action.move_to([0.009195, 0.908270])
+    rospy.loginfo("Pointing head...done")
 
     # --------------------------- initialize moveit components ----------------#
     moveit_commander.roscpp_initialize(sys.argv)
     group = moveit_commander.MoveGroupCommander("arm")
     group.set_max_velocity_scaling_factor(1.0)
+    group.set_max_acceleration_scaling_factor(1.0)
     group_grp = moveit_commander.MoveGroupCommander("gripper")
     scene = moveit_commander.PlanningSceneInterface()
     scene.remove_world_object()
