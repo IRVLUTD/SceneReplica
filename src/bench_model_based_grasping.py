@@ -599,8 +599,6 @@ if __name__ == "__main__":
         experiment_data["estimated_poses"][object_to_grasp] = RT_obj
         write_pickle_file(experiment_data, experiment_data_file)
         direct_topdown = False
-        if object_to_grasp in {"037_scissors", "040_large_marker", "052_extra_large_clamp"}:
-            direct_topdown  = True
         if not direct_topdown:
             RT_gripper = get_gripper_rt(tf_buffer)
             print("RT_gripper", RT_gripper)
