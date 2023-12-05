@@ -77,19 +77,18 @@ class Gripper(object):
                 self._group_gripper.get_current_joint_values()
             )  # for Fetch robot, generally, 0.05 is open, and 0.0 is closed
             # either [0] or [1] is fine as its symmetric prismatic joint
-            dofvalue = gripper_values[0]
-            return dofvalue
+            return gripper_values
         else:
             print("Moveit group for the gripper not provided!")
             return None
 
     def is_fully_open(self):
-        dofval = self.get_gripper_state()
-        return abs(dofval - self.OPENED_DOF_VAL) < 1e-3
+        dofvals = self.get_gripper_state()
+        return (abs(dofvals[0] - self.OPENED_DOF_VAL) < 1e-3) and (abs(dofvals[1] - self.OPENED_DOF_VAL) < 1e-3)
 
     def is_fully_closed(self):
-        dofval = self.get_gripper_state()
-        return abs(dofval - self.CLOSED_DOF_VAL) < 1e-4
+        dofvals = self.get_gripper_state()
+        return (abs(dofvals[0] - self.CLOSED_DOF_VAL) < 1e-4) and (abs(dofvals[1] - self.CLOSED_DOF_VAL) < 1e-4)
 
 def wait_for_time():
     """Wait for simulated time to begin.

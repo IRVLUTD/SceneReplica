@@ -329,7 +329,7 @@ def get_pose_isaac(object_name: str):
     a 4x4 transform for its pose
     """
     # Example: "object_003_cracker_box_base_link"
-    isaac_topic_name = f"object_{object_name}_base_link"
+    isaac_topic_name = f"YCB_{object_name}"
     RT_obj = get_tf_pose(isaac_topic_name, "base_link")
     return RT_obj
 
@@ -567,7 +567,7 @@ if __name__ == "__main__":
     moveit_commander.roscpp_initialize(sys.argv)
     group = moveit_commander.MoveGroupCommander("arm")
     group.set_max_velocity_scaling_factor(1.0)
-    group.set_max_acceleration_scaling_factor(1.0)
+    # group.set_max_acceleration_scaling_factor(1.0)
     group_grp = moveit_commander.MoveGroupCommander("gripper")
     scene = moveit_commander.PlanningSceneInterface()
     scene.remove_world_object()

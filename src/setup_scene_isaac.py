@@ -119,7 +119,7 @@ def main(args):
     world.scene.add_default_ground_plane()
 
     # Preparing stage
-    viewports.set_camera_view(eye=np.array([3.5, 3.5, 3.5]), target=np.array([0, 0, 0.5]))
+    viewports.set_camera_view(eye=np.array([2.5, 2.5, 2.5]), target=np.array([0, 0, 0.5]))
 
     # Loading the fetch robot USD
     asset_path = os.path.join(models_path, "fetch/fetch.usd")
@@ -264,7 +264,7 @@ def main(args):
             stage.add_reference_to_stage(usd_path=asset_path, prim_path=obj_prim_path)
 
             print(positions[i], orientations[i])
-            rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path + "/object_" + objname + "_base_link", name=obj_prim_path)
+            rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path, name=obj_prim_path)
             world.scene.add(rigid_prim_view)
             rigid_prim_view.set_world_poses(positions=positions[i].reshape((1,3)), orientations=orientations[i].reshape((1, 4)))
             tf_paths.append(usdrt.Sdf.Path(obj_prim_path))
