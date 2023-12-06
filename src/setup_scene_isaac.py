@@ -22,7 +22,7 @@ import omni
 import omni.graph.core as og
 import usdrt.Sdf
 from omni.isaac.core import World
-from omni.isaac.core.articulations import Articulation
+from omni.isaac.core.articulations import Articulation, ArticulationView
 from omni.isaac.core.utils.types import ArticulationAction
 from omni.isaac.core.utils import extensions, stage, viewports
 from omni.isaac.core.prims.rigid_prim import RigidPrimView
@@ -264,7 +264,7 @@ def main(args):
             stage.add_reference_to_stage(usd_path=asset_path, prim_path=obj_prim_path)
 
             print(positions[i], orientations[i])
-            rigid_prim_view = RigidPrimView(prim_paths_expr=obj_prim_path, name=obj_prim_path)
+            rigid_prim_view = ArticulationView(prim_paths_expr=obj_prim_path, name=obj_prim_path)
             world.scene.add(rigid_prim_view)
             rigid_prim_view.set_world_poses(positions=positions[i].reshape((1,3)), orientations=orientations[i].reshape((1, 4)))
             tf_paths.append(usdrt.Sdf.Path(obj_prim_path))
