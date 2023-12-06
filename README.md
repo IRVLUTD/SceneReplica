@@ -105,6 +105,13 @@ The metadata files (specifically the color scene-overlay reference images) are o
    It runs in a loop and asks you to enter the scene id at each iteration. Loads
    the objects in gazebo and waits for user confirmation before next scene.
 
+3. To use MoveIt with Gazebo for the Fetch robot, start MoveIt by
+    ```Shell
+    roslaunch launch/moveit_sim.launch
+    ```
+
+4. Try the model-based grasping as described below in Gazebo
+
 <img src="./media/gazebo_scene.png" alt="gazebo_scene" style="width:400px;"/> 
 
 ## NVIDIA Isaac Sim (Simulation) Usage
