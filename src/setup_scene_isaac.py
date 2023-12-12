@@ -267,7 +267,7 @@ def main(args):
             rigid_prim_view = ArticulationView(prim_paths_expr=obj_prim_path, name=obj_prim_path)
             world.scene.add(rigid_prim_view)
             rigid_prim_view.set_world_poses(positions=positions[i].reshape((1,3)), orientations=orientations[i].reshape((1, 4)))
-            tf_paths.append(usdrt.Sdf.Path(obj_prim_path))
+            tf_paths.append(usdrt.Sdf.Path(obj_prim_path + f"/object_{objname}_base_link"))
 
         # set tf publisher
         print(tf_paths)

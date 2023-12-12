@@ -329,7 +329,7 @@ def get_pose_isaac(object_name: str):
     a 4x4 transform for its pose
     """
     # Example: "object_003_cracker_box_base_link"
-    isaac_topic_name = f"YCB_{object_name}"
+    isaac_topic_name = f"object_{object_name}_base_link"
     RT_obj = get_tf_pose(isaac_topic_name, "base_link")
     return RT_obj
 
