@@ -133,7 +133,11 @@ The metadata files (specifically the color scene-overlay reference images) are o
     roslaunch fetch_isaac_moveit.launch
     ```
 
-3. Try the model-based grasping as described below in Isaac Sim
+3. Try the model-based grasping as described below in Isaac Sim. For example,
+    ```Shell
+    cd src
+    python3 bench_model_based_grasping.py --data_dir=../data/ --scene_idx 68 --pose_method isaac --obj_order nearest_first
+    ```
 
 ![](./media/isaac_scene.png)
 
