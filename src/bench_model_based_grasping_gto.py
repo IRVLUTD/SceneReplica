@@ -788,7 +788,7 @@ if __name__ == "__main__":
                         qc = q0.flatten()
                         print('start planning')
                         start = time.time()
-                        plan, cost = planner.plan_goalset(qc, RT_grasps_base, sdf_distances, q_solutions, use_standoff=True, axis_standoff=cfg['axis_standoff'])
+                        plan, dQ, cost = planner.plan_goalset(qc, RT_grasps_base, sdf_distances, q_solutions, use_standoff=True, axis_standoff=cfg['axis_standoff'])
                         # plan, cost = planner.plan(qc, RT_grasps_base[0], sdf_distances, q_solutions[:, 0], use_standoff=True, axis_standoff=axis_standoff)
                         planning_time = time.time() - start
                         print('plannnig time', planning_time, 'cost', cost)
@@ -811,6 +811,7 @@ if __name__ == "__main__":
                             trajectory = None
                         else:
                             plan = plan[gto_robot.optimized_joint_indexes, :]
+                            dQ = dQ[gto_robot.optimized_joint_indexes, :]
                             trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan, planner.dt)
                         
                         # visualize_plan(robot, gripper_model, [0, 0, 0], plan, depth_pc, RT_grasps_base)
