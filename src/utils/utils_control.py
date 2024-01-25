@@ -80,6 +80,7 @@ class JointListener:
         self.topic_name_joint = topic_name_joint
         self.robot_state = None
         self.joint_position = None
+        self.joint_name = None
         self._sub = rospy.Subscriber(
             self.topic_name_joint,
             JointState,
@@ -90,3 +91,4 @@ class JointListener:
     def robot_state_callback(self, data):
         self.robot_state = data
         self.joint_position = np.array(data.position)
+        self.joint_name = data.name

@@ -2,6 +2,7 @@ import os, sys
 import math
 import json
 import copy
+from turtle import width
 import numpy as np
 import trimesh
 import cv2
@@ -11,6 +12,9 @@ from scipy.spatial import KDTree
 import rospy
 from ros_utils import ros_qt_to_rt
 from tf.transformations import euler_matrix
+from trajectory_msgs.msg import (
+    JointTrajectory, JointTrajectoryPoint,
+)
 
 
 ################ Lifting, Standoff, Movement Utils #####################
@@ -425,7 +429,25 @@ def model_free_top_down_grasp(camera_pose, mask_id, label, xyz_image, percent_fi
     print("Z_TIP:", z_tip)
     z_gripper_base = z_tip + gripper_tip_to_base_offset
     RT[2, 3] = z_gripper_base
-    return RT, gripper_width    
+    return RT, gripper_width
+
+
+def compute_projected_box(image, points_base, RT_camera, intrinsic_matrix):
+    height = image.shape[1]
+    width = image.shape[0]
+    # project points to camera view
+    RT = np.linalg.inv(RT_camera)
+    pc = points_base.T
+    pc_camera = RT[:3, :3] @ pc + RT[:3, 3].reshape((3, 1))
+    x2d = intrinsic_matrix @ pc_camera
+    x2d[0, :] /= x2d[2, :]
+    x2d[1, :] /= x2d[2, :]
+    pixels = x2d[:2].T.astype(int)
+    x1 = np.clip(np.min(pixels[:, 0]), 0, width - 1)
+    x2 = np.clip(np.max(pixels[:, 0]), 0, width - 1)
+    y1 = np.clip(np.min(pixels[:, 1]), 0, height - 1)
+    y2 = np.clip(np.max(pixels[:, 1]), 0, height - 1)
+    return [x1, y1, x2, y2]
  
 
 def compute_oriented_bbox(points_base):
@@ -700,3 +722,18 @@ def extract_grasps(graspit_grasps, gripper_name, obj_offset):
 
         poses_grasp[i, :, :] = RT_offset @ RT
     return poses_grasp
+
+
+def convert_plan_to_trajectory(joint_names, plan, dt):
+    trajectory = JointTrajectory()
+    trajectory.header.stamp = rospy.Time.now()
+    trajectory.joint_names = joint_names
+
+    T = plan.shape[1]
+    for i in range(T):
+        positions = plan[:, i]
+        point = JointTrajectoryPoint()
+        point.positions = positions.copy()
+        point.time_from_start = rospy.Duration.from_sec(i * dt)
+        trajectory.points.append(point)
+    return trajectory
