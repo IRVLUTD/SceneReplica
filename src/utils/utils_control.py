@@ -89,6 +89,7 @@ class JointListener:
         )
 
     def robot_state_callback(self, data):
-        self.robot_state = data
-        self.joint_position = np.array(data.position)
-        self.joint_name = data.name
+        if len(data.name) > 2:
+            self.robot_state = data
+            self.joint_position = np.array(data.position)
+            self.joint_name = data.name

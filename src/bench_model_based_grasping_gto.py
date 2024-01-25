@@ -318,6 +318,8 @@ def get_pose(object_name: str, pose_method: str):
         return get_pose_posecnn(object_name)
     elif pose_method == "poserbpf":
         return get_pose_poserbpf(object_name)
+    elif pose_method == 'gdrnpp':
+        return get_pose_gdrnpp(object_name)
     else:
         print(f"[ERROR] incorrect pose method provided : {pose_method}. Will return None!")
         return None
@@ -371,6 +373,17 @@ def get_pose_poserbpf(object_name: str):
     poserbpf_topic_name = f"poserbpf/00_{object_name}_00"  # f"00_{object_name}_raw"
     RT_obj = get_tf_pose(poserbpf_topic_name, "base_link")
     return RT_obj
+
+
+def get_pose_gdrnpp(object_name: str):
+    """
+    Queries the PGDRNPP topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "gdrnpp/00_003_cracker_box_01_roi"
+    gdrnpp_topic_name = f"gdrnpp/00_{object_name[4:]}_01_roi"  # f"00_{object_name}_raw"
+    RT_obj = get_tf_pose(gdrnpp_topic_name, "base_link")
+    return RT_obj    
 
 
 def get_pose_isaac(object_name: str):
@@ -511,7 +524,7 @@ def make_args():
 
 
 if __name__ == "__main__":
-    VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac"}
+    VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac", "gdrnpp"}
 
     args = make_args()
     table_height = args.table_height
@@ -709,11 +722,23 @@ if __name__ == "__main__":
                 # project object points to generate object mask
                 mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
                 obj_pts = get_object_verts(mesh_p, pose=RT_obj)
-                x1, y1, x2, y2 = compute_projected_box(depth_image, obj_pts, cam_pose, intrinsic_matrix)
+                x1, y1, x2, y2, pixels = compute_projected_box(depth_image, obj_pts, cam_pose, intrinsic_matrix)
                 target_mask = np.zeros_like(depth_image)
                 target_mask[y1:y2, x1:x2] = 1
                 depth_image[target_mask == 1] = 2.0
                 depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose, target_mask)
+
+                # show result
+                import matplotlib.pyplot as plt
+                fig = plt.figure()
+                ax = fig.add_subplot(1, 2, 1)
+                plt.imshow(depth_image)
+                plt.plot(pixels[:, 0], pixels[:, 1], 'ro')
+                ax.set_title('depth image')
+                ax = fig.add_subplot(1, 2, 2)
+                plt.imshow(target_mask)
+                ax.set_title('mask image')
+                plt.show()
 
                 # compute sdf cost
                 world_points = gto_robot.workspace_points
@@ -766,7 +791,10 @@ if __name__ == "__main__":
                     q0 = np.zeros((gto_robot.ndof, 1))
                     for i in range(gto_robot.ndof):
                         name = gto_robot.actuated_joint_names[i]
-                        q0[i] = joint_position[joint_name.index(name)]
+                        if name in joint_name:
+                            q0[i] = joint_position[joint_name.index(name)]
+                    # set gripper joint open
+                    q0[cfg['finger_index'], 0] = cfg['gripper_open_offsets']
 
                     q_solutions = np.zeros((gto_robot.ndof, n), dtype=np.float32)
                     for i in range(n):
@@ -803,6 +831,8 @@ if __name__ == "__main__":
                             # at least 10 body points in collision
                             if np.sum(sdf < 0) > 10:
                                 print('****************************** plan in collision ***************************')
+                                print('number of points in collision:', np.sum(sdf < 0))
+                                print('****************************** plan in collision ***************************')
                                 in_collision = True
                                 break                        
 
@@ -814,7 +844,7 @@ if __name__ == "__main__":
                             dQ = dQ[gto_robot.optimized_joint_indexes, :]
                             trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan, planner.dt)
                         
-                        # visualize_plan(robot, gripper_model, [0, 0, 0], plan, depth_pc, RT_grasps_base)
+                        visualize_plan(gto_robot, gripper_model, [0, 0, 0], plan, depth_pc, RT_grasps_base)
 
 
         # Exit code for plan_grasp(): Returning an exit code to catch it here so that we can still continue on to the next trial

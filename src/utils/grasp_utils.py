@@ -433,8 +433,8 @@ def model_free_top_down_grasp(camera_pose, mask_id, label, xyz_image, percent_fi
 
 
 def compute_projected_box(image, points_base, RT_camera, intrinsic_matrix):
-    height = image.shape[1]
-    width = image.shape[0]
+    height = image.shape[0]
+    width = image.shape[1]
     # project points to camera view
     RT = np.linalg.inv(RT_camera)
     pc = points_base.T
@@ -443,11 +443,22 @@ def compute_projected_box(image, points_base, RT_camera, intrinsic_matrix):
     x2d[0, :] /= x2d[2, :]
     x2d[1, :] /= x2d[2, :]
     pixels = x2d[:2].T.astype(int)
-    x1 = np.clip(np.min(pixels[:, 0]), 0, width - 1)
-    x2 = np.clip(np.max(pixels[:, 0]), 0, width - 1)
-    y1 = np.clip(np.min(pixels[:, 1]), 0, height - 1)
-    y2 = np.clip(np.max(pixels[:, 1]), 0, height - 1)
-    return [x1, y1, x2, y2]
+    x1 = np.min(pixels[:, 0])
+    x2 = np.max(pixels[:, 0])
+    y1 = np.min(pixels[:, 1])
+    y2 = np.max(pixels[:, 1])
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
+    w = x2 - x1 + 1
+    h = y2 - y1 + 1
+    # enlarge
+    w = w + 0.1 * w
+    h = h + 0.1 * h
+    x1 = np.clip(int(cx - w / 2), 0, width - 1)
+    x2 = np.clip(int(cx + w / 2), 0, width - 1)
+    y1 = np.clip(int(cy - h / 2), 0, height - 1)
+    y2 = np.clip(int(cy + h / 2), 0, height - 1)
+    return x1, y1, x2, y2, pixels
  
 
 def compute_oriented_bbox(points_base):
