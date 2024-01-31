@@ -285,6 +285,7 @@ def grasp_with_trajectory(
 
     input("execute?")
     group.execute(trajectory, wait=True)
+    rospy.sleep(1)
     group.stop()
     group.clear_pose_targets()
 
@@ -662,14 +663,15 @@ if __name__ == "__main__":
     robot_model_dir = os.path.join(root_dir, 'data', 'robots', cfg['robot_name'])
     urdf_filename = os.path.join(root_dir, cfg['urdf_robot_path']) 
     # define the standoff pose for collision checking
-    offset = -0.01    
+    offset = -0.01
+    base_position = [0, 0, 0]
 
     gto_robot = GTORobotModel(robot_model_dir,
                           urdf_filename=urdf_filename, 
                           time_derivs=[0, 1],  # i.e. joint position/velocity trajectory
                           param_joints=cfg['param_joints'],
                           collision_link_names=cfg['collision_link_names'])
-    gto_robot.setup_workspace_field(arm_len=cfg['arm_len'], arm_height=cfg['arm_height'])
+
     # load robot gripper model
     urdf_filename = os.path.join(robot_model_dir, f"{robot_name}_gripper.urdf")
     gripper_model = GTORobotModel(robot_model_dir, urdf_filename=urdf_filename)    
@@ -677,7 +679,7 @@ if __name__ == "__main__":
     # Initialize planner
     print('Initialize planner')
     planner = GTOPlanner(gto_robot, cfg['link_ee'], cfg['link_gripper'])
-    ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'])
+    ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'], collision_avoidance=True)
 
     # main object loop
     for obj_i, object_to_grasp in enumerate(object_order):
@@ -719,30 +721,38 @@ if __name__ == "__main__":
 
                 # render image and compute sdf cost field
                 im_color, depth_image, xyz_image, xyz_base, cam_pose, intrinsic_matrix = image_listener.get_data()
+                depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose)  
+
+                # compute sdf cost of all points
+                gto_robot.setup_points_field(depth_pc.points)           
+                world_points = gto_robot.workspace_points
+                sdf_cost_all = depth_pc.get_sdf_cost(world_points)
+
                 # project object points to generate object mask
                 mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
                 obj_pts = get_object_verts(mesh_p, pose=RT_obj)
                 x1, y1, x2, y2, pixels = compute_projected_box(depth_image, obj_pts, cam_pose, intrinsic_matrix)
                 target_mask = np.zeros_like(depth_image)
                 target_mask[y1:y2, x1:x2] = 1
-                depth_image[target_mask == 1] = 2.0
-                depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose, target_mask)
+                target_mask = target_mask == 1
+
+                # compute sdf cost obstacle
+                depth_obstacle = depth_image.copy()
+                depth_obstacle[target_mask] = 2.0
+                depth_pc_obstacle = DepthPointCloud(depth_obstacle, intrinsic_matrix, cam_pose, target_mask)
+                sdf_cost_obstacle = depth_pc_obstacle.get_sdf_cost(world_points)                     
 
                 # show result
-                import matplotlib.pyplot as plt
-                fig = plt.figure()
-                ax = fig.add_subplot(1, 2, 1)
-                plt.imshow(depth_image)
-                plt.plot(pixels[:, 0], pixels[:, 1], 'ro')
-                ax.set_title('depth image')
-                ax = fig.add_subplot(1, 2, 2)
-                plt.imshow(target_mask)
-                ax.set_title('mask image')
-                plt.show()
-
-                # compute sdf cost
-                world_points = gto_robot.workspace_points
-                sdf_distances = depth_pc.get_sdf_cost(world_points)
+                # import matplotlib.pyplot as plt
+                # fig = plt.figure()
+                # ax = fig.add_subplot(1, 2, 1)
+                # plt.imshow(depth_image)
+                # plt.plot(pixels[:, 0], pixels[:, 1], 'ro')
+                # ax.set_title('depth image')
+                # ax = fig.add_subplot(1, 2, 2)
+                # plt.imshow(target_mask)
+                # ax.set_title('mask image')
+                # plt.show()
 
                 # transform grasps to robot base
                 print('start checking collision of grasps')
@@ -782,6 +792,7 @@ if __name__ == "__main__":
                     # test IK for remaining grasps
                     print('start IK')
                     start = time.time()
+                    ik_solver.setup_optimization()
                     n = RT_grasps_base.shape[0]
                     found_ik = np.zeros((n, ), dtype=np.int32)
 
@@ -799,9 +810,9 @@ if __name__ == "__main__":
                     q_solutions = np.zeros((gto_robot.ndof, n), dtype=np.float32)
                     for i in range(n):
                         RT = RT_grasps_base[i].copy()
-                        q_solution, err_pos, err_rot = ik_solver.solve_ik(q0, RT)
+                        q_solution, err_pos, err_rot, cost_collision = ik_solver.solve_ik(q0, RT, sdf_cost_obstacle, base_position)
                         q_solutions[:, i] = q_solution
-                        if err_pos < 0.01 and err_rot < 5:
+                        if err_pos < 0.01 and err_rot < 5 and cost_collision < 5:
                             found_ik[i] = 1
                     RT_grasps_base = RT_grasps_base[found_ik == 1]
                     q_solutions = q_solutions[:, found_ik == 1]
@@ -816,8 +827,8 @@ if __name__ == "__main__":
                         qc = q0.flatten()
                         print('start planning')
                         start = time.time()
-                        plan, dQ, cost = planner.plan_goalset(qc, RT_grasps_base, sdf_distances, q_solutions, use_standoff=True, axis_standoff=cfg['axis_standoff'])
-                        # plan, cost = planner.plan(qc, RT_grasps_base[0], sdf_distances, q_solutions[:, 0], use_standoff=True, axis_standoff=axis_standoff)
+                        plan, dQ, cost = planner.plan_goalset(qc, RT_grasps_base, sdf_cost_all, sdf_cost_obstacle, 
+                                                                base_position, q_solutions, use_standoff=True, axis_standoff=cfg['axis_standoff'])
                         planning_time = time.time() - start
                         print('plannnig time', planning_time, 'cost', cost)
 
@@ -827,8 +838,9 @@ if __name__ == "__main__":
                         for i in range(plan.shape[1]):
                             q = plan[:, i]
                             points_base, _ = gto_robot.compute_fk_surface_points(q)
-                            sdf = depth_pc.get_sdf(points_base)
+                            sdf = depth_pc_obstacle.get_sdf(points_base)
                             # at least 10 body points in collision
+                            print('number of points in collision:', np.sum(sdf < 0))
                             if np.sum(sdf < 0) > 10:
                                 print('****************************** plan in collision ***************************')
                                 print('number of points in collision:', np.sum(sdf < 0))
@@ -840,11 +852,11 @@ if __name__ == "__main__":
                         if in_collision:
                             trajectory = None
                         else:
-                            plan = plan[gto_robot.optimized_joint_indexes, :]
+                            plan_ros = plan[gto_robot.optimized_joint_indexes, :]
                             dQ = dQ[gto_robot.optimized_joint_indexes, :]
-                            trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan, planner.dt)
+                            trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
                         
-                        visualize_plan(gto_robot, gripper_model, [0, 0, 0], plan, depth_pc, RT_grasps_base)
+                        # visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, RT_grasps_base)
 
 
         # Exit code for plan_grasp(): Returning an exit code to catch it here so that we can still continue on to the next trial
@@ -880,6 +892,9 @@ if __name__ == "__main__":
                 trajectory,
             )
         logger.inform(f"{object_to_grasp} reached successfully")
+
+        ####### remove planning scene objects for lifting
+        scene.remove_world_object()
 
         # ------------------------ LIFTING OBJECT --------------------------#
         if gripper.is_fully_closed() or gripper.is_fully_open():

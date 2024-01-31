@@ -735,7 +735,7 @@ def extract_grasps(graspit_grasps, gripper_name, obj_offset):
     return poses_grasp
 
 
-def convert_plan_to_trajectory(joint_names, plan, dt):
+def convert_plan_to_trajectory(joint_names, plan, dQ, dt):
     trajectory = JointTrajectory()
     trajectory.header.stamp = rospy.Time.now()
     trajectory.joint_names = joint_names
@@ -743,8 +743,14 @@ def convert_plan_to_trajectory(joint_names, plan, dt):
     T = plan.shape[1]
     for i in range(T):
         positions = plan[:, i]
+        if i < T - 1:
+            velocities = dQ[:, i]
+        else:
+            velocities = np.zeros((dQ.shape[0], ))
         point = JointTrajectoryPoint()
         point.positions = positions.copy()
-        point.time_from_start = rospy.Duration.from_sec(i * dt)
+        # point.velocities = velocities.copy()
+        point.time_from_start = rospy.Duration.from_sec(i * dt * 3)
         trajectory.points.append(point)
+    print(trajectory)
     return trajectory

@@ -10,3 +10,6 @@ this_dir = osp.dirname(__file__)
 # gto planner path
 gto_path = '/home/ninad/Projects/GraspTrajOpt'
 add_path(gto_path)
+
+gto_path = '/home/yuxiang/Projects/GraspTrajOpt'
+add_path(gto_path)
