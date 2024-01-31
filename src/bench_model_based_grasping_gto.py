@@ -679,7 +679,7 @@ if __name__ == "__main__":
     # Initialize planner
     print('Initialize planner')
     planner = GTOPlanner(gto_robot, cfg['link_ee'], cfg['link_gripper'])
-    ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'], collision_avoidance=True)
+    ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'], collision_avoidance=False)
 
     # main object loop
     for obj_i, object_to_grasp in enumerate(object_order):
