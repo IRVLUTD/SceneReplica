@@ -18,7 +18,7 @@ class FollowTrajectoryClient(object):
         self.client.wait_for_server()
         self.joint_names = joint_names
 
-    def move_to(self, positions, duration=5.0):
+    def move_to(self, positions, duration=5.0, velocities=None):
         if len(self.joint_names) != len(positions):
             print("Invalid trajectory position")
             return False
@@ -26,7 +26,10 @@ class FollowTrajectoryClient(object):
         trajectory.joint_names = self.joint_names
         trajectory.points.append(JointTrajectoryPoint())
         trajectory.points[0].positions = positions
-        trajectory.points[0].velocities = [0.0 for _ in positions]
+        if velocities is None:
+            trajectory.points[0].velocities = [0.0 for _ in positions]
+        else:
+            trajectory.points[0].velocities = velocities
         trajectory.points[0].accelerations = [0.0 for _ in positions]
         trajectory.points[0].time_from_start = rospy.Duration(duration)
         follow_goal = FollowJointTrajectoryGoal()

@@ -262,7 +262,7 @@ def grasp_with_rt(
 
 
 def grasp_with_trajectory(
-    gripper, group, scene, object_name, display_trajectory_publisher, trajectory
+    arm_action, gripper, dt, scene, object_name, display_trajectory_publisher, trajectory
 ):
     """
     A method the included the actions of pushing and sweeping according to direction.
@@ -273,9 +273,6 @@ def grasp_with_trajectory(
     :param RT_grasp: gripper pose for grasping
     :return:
     """
-    # Calling `stop()` ensures that there is no residual movement
-    group.stop()
-    group.clear_pose_targets()
 
     # visualize plan
     display_trajectory = moveit_msgs.msg.DisplayTrajectory()
@@ -285,10 +282,8 @@ def grasp_with_trajectory(
     display_trajectory_publisher.publish(display_trajectory)
 
     input("execute?")
-    group.execute(trajectory, wait=True)
-    rospy.sleep(1)
-    group.stop()
-    group.clear_pose_targets()
+    for point in trajectory.points:
+        arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
 
     # remove the target from the planning scene for grasping
     scene.remove_world_object(object_name)
@@ -646,8 +641,8 @@ if __name__ == "__main__":
     joint_listener = JointListener()
     # ---------------------------- initialize moveit components ---------------#
 
-    # reset_arm_stow(group)
-    # gripper.open()
+    reset_arm_stow(group)
+    gripper.open()
 
     ### initialize GTO planner
     # load config file
@@ -681,6 +676,7 @@ if __name__ == "__main__":
     print('Initialize planner')
     planner = GTOPlanner(gto_robot, cfg['link_ee'], cfg['link_gripper'])
     ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'], collision_avoidance=False)
+    arm_action = FollowTrajectoryClient("arm_controller", gto_robot.optimized_joint_names)
 
     # main object loop
     for obj_i, object_to_grasp in enumerate(object_order):
@@ -890,8 +886,9 @@ if __name__ == "__main__":
                 logger.error("TOP DOWN FAILED!! Object too wide.")
         elif trajectory and grasp_num != -1:
             grasp_with_trajectory(
+                arm_action,
                 gripper,
-                group,
+                planner.dt,
                 scene,
                 object_to_grasp,
                 display_trajectory_publisher,

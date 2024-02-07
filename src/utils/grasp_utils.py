@@ -749,7 +749,7 @@ def convert_plan_to_trajectory(joint_names, plan, dQ, dt):
             velocities = np.zeros((dQ.shape[0], ))
         point = JointTrajectoryPoint()
         point.positions = positions.copy()
-        # point.velocities = velocities.copy()
+        point.velocities = velocities.copy()
         point.time_from_start = rospy.Duration.from_sec(i * dt * 3)
         trajectory.points.append(point)
     return trajectory
