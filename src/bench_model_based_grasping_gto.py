@@ -856,7 +856,7 @@ if __name__ == "__main__":
                             dQ = dQ[gto_robot.optimized_joint_indexes, :]
                             trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
                         
-                        # visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, RT_grasps_base)
+                        visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, RT_grasps_base)
 
 
         # Exit code for plan_grasp(): Returning an exit code to catch it here so that we can still continue on to the next trial
