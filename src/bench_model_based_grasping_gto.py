@@ -6,6 +6,7 @@ import argparse
 import datetime
 import time
 
+import matplotlib.pyplot as plt
 from scipy.io import loadmat
 import rospy
 import moveit_commander
@@ -645,8 +646,8 @@ if __name__ == "__main__":
     joint_listener = JointListener()
     # ---------------------------- initialize moveit components ---------------#
 
-    reset_arm_stow(group)
-    gripper.open()
+    # reset_arm_stow(group)
+    # gripper.open()
 
     ### initialize GTO planner
     # load config file
@@ -721,7 +722,8 @@ if __name__ == "__main__":
 
                 # render image and compute sdf cost field
                 im_color, depth_image, xyz_image, xyz_base, cam_pose, intrinsic_matrix = image_listener.get_data()
-                depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose)  
+                depth_image[np.isnan(depth_image)] = np.inf
+                depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose)
 
                 # compute sdf cost of all points
                 gto_robot.setup_points_field(depth_pc.points)           
@@ -743,15 +745,17 @@ if __name__ == "__main__":
                 sdf_cost_obstacle = depth_pc_obstacle.get_sdf_cost(world_points)                     
 
                 # show result
-                # import matplotlib.pyplot as plt
                 # fig = plt.figure()
-                # ax = fig.add_subplot(1, 2, 1)
+                # ax = fig.add_subplot(1, 3, 1)
                 # plt.imshow(depth_image)
                 # plt.plot(pixels[:, 0], pixels[:, 1], 'ro')
                 # ax.set_title('depth image')
-                # ax = fig.add_subplot(1, 2, 2)
+                # ax = fig.add_subplot(1, 3, 2)
                 # plt.imshow(target_mask)
                 # ax.set_title('mask image')
+                # ax = fig.add_subplot(1, 3, 3)
+                # plt.imshow(depth_obstacle)
+                # ax.set_title('depth obstacle')
                 # plt.show()
 
                 # transform grasps to robot base
@@ -765,7 +769,7 @@ if __name__ == "__main__":
                     # check if the grasp is in collision
                     RT_off = RT @ gto_robot.get_standoff_pose(offset, cfg['axis_standoff'])
                     gripper_points, normals = gripper_model.compute_fk_surface_points(cfg['gripper_open_offsets'], tf_base=RT_off)
-                    sdf = depth_pc.get_sdf(gripper_points)
+                    sdf = depth_pc_obstacle.get_sdf(gripper_points)
 
                     ratio = np.sum(sdf < 0) / len(sdf)
                     print(f'grasp {i}, collision ratio {ratio}')
@@ -840,8 +844,10 @@ if __name__ == "__main__":
                             points_base, _ = gto_robot.compute_fk_surface_points(q)
                             sdf = depth_pc_obstacle.get_sdf(points_base)
                             # at least 10 body points in collision
-                            print('number of points in collision:', np.sum(sdf < 0))
-                            if np.sum(sdf < 0) > 10:
+                            num = np.sum(sdf < 0)
+                            if num > 0:
+                                print('number of points in collision:', np.sum(sdf < 0))
+                            if num > 50:
                                 print('****************************** plan in collision ***************************')
                                 print('number of points in collision:', np.sum(sdf < 0))
                                 print('****************************** plan in collision ***************************')
@@ -856,7 +862,7 @@ if __name__ == "__main__":
                             dQ = dQ[gto_robot.optimized_joint_indexes, :]
                             trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
                         
-                        visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, RT_grasps_base)
+                        visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
 
 
         # Exit code for plan_grasp(): Returning an exit code to catch it here so that we can still continue on to the next trial
