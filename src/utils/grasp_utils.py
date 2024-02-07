@@ -32,6 +32,7 @@ def rotate_gripper(group, RT_gripper):
     group.stop()
     joint_goal = group.get_current_joint_values()
     joint_goal[-1] += np.radians(30)
+    joint_goal[-1] = np.clip(joint_goal[-1], -3.14, 3.14)
     # wrist flex joint, index 5, limit -2.1
     # joint_goal[-2] = max(joint_goal[-2] + np.radians(30), -2.1)
     group.go(joint_goal, wait=True)
