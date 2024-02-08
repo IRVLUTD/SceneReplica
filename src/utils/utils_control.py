@@ -38,6 +38,13 @@ class FollowTrajectoryClient(object):
         self.client.send_goal(follow_goal)
         self.client.wait_for_result()
 
+    def follow_traj(self, trajectory):
+        follow_goal = FollowJointTrajectoryGoal()
+        follow_goal.trajectory = trajectory
+
+        self.client.send_goal(follow_goal)
+        self.client.wait_for_result()        
+
 
 # Point the head using controller
 class PointHeadClient(object):
