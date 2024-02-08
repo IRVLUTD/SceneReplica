@@ -295,7 +295,7 @@ def grasp_with_trajectory(
     # close gripper
     print("close gripper")
     gripper.close()
-    rospy.sleep(2)
+    rospy.sleep(3)
 
 
 
@@ -847,7 +847,7 @@ if __name__ == "__main__":
                             num = np.sum(sdf < 0)
                             if num > 0:
                                 print('number of points in collision:', np.sum(sdf < 0))
-                            if num > 50:
+                            if num > 20:
                                 print('****************************** plan in collision ***************************')
                                 print('number of points in collision:', np.sum(sdf < 0))
                                 print('****************************** plan in collision ***************************')
