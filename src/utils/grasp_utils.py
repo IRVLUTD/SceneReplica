@@ -753,3 +753,43 @@ def convert_plan_to_trajectory(joint_names, plan, dQ, dt):
         point.time_from_start = rospy.Duration.from_sec(i * dt * 3)
         trajectory.points.append(point)
     return trajectory
+
+
+def convert_plan_to_trajectory_toppra(robot, joint_names, plan):
+
+    import toppra as ta
+    import toppra.constraint as constraint
+    import toppra.algorithm as algo
+
+    ndof = plan.shape[0]
+    T = plan.shape[1]
+    ss = np.linspace(0, 1, T)
+    way_pts = plan.T
+    vlims = robot.velocity_optimized_joint_limits.toarray().flatten()
+    alims = np.ones(ndof)
+    
+    path = ta.SplineInterpolator(ss, way_pts)
+    pc_vel = constraint.JointVelocityConstraint(vlims)
+    pc_acc = constraint.JointAccelerationConstraint(alims)
+
+    instance = algo.TOPPRA([pc_vel, pc_acc], path, parametrizer="ParametrizeConstAccel")
+    jnt_traj = instance.compute_trajectory()
+
+    num = 100
+    ts_sample = np.linspace(0, jnt_traj.duration, num)
+    qs_sample = jnt_traj(ts_sample)
+    qds_sample = jnt_traj(ts_sample, 1)
+    qdds_sample = jnt_traj(ts_sample, 2)
+    
+    trajectory = JointTrajectory()
+    trajectory.header.stamp = rospy.Time.now()
+    trajectory.joint_names = joint_names
+
+    for i in range(num):
+        point = JointTrajectoryPoint()
+        point.positions = qs_sample[i]
+        point.velocities = qds_sample[i]
+        point.accelerations = qdds_sample[i]
+        point.time_from_start = rospy.Duration.from_sec(ts_sample[i])
+        trajectory.points.append(point)
+    return trajectory

@@ -856,7 +856,8 @@ if __name__ == "__main__":
                         else:
                             plan_ros = plan[gto_robot.optimized_joint_indexes, :]
                             dQ = dQ[gto_robot.optimized_joint_indexes, :]
-                            trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
+                            # trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
+                            trajectory = convert_plan_to_trajectory_toppra(gto_robot, gto_robot.optimized_joint_names, plan_ros)
                         
                         visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
 
