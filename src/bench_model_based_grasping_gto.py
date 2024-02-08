@@ -36,6 +36,7 @@ from grasp_utils import (
     user_confirmation,
     compute_projected_box,
     convert_plan_to_trajectory,
+    convert_plan_to_trajectory_toppra,
 )
 from utils_control import FollowTrajectoryClient, PointHeadClient, JointListener
 from utils_scene import load_scene, read_pickle_file, write_pickle_file
@@ -284,9 +285,9 @@ def grasp_with_trajectory(
     display_trajectory_publisher.publish(display_trajectory)
 
     input("execute?")
-    for point in trajectory.points:
-        arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
-    # arm_action.follow_traj(trajectory)
+    # for point in trajectory.points:
+    #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
+    arm_action.follow_traj(trajectory)
 
     # remove the target from the planning scene for grasping
     scene.remove_world_object(object_name)

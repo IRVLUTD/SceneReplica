@@ -756,7 +756,7 @@ def convert_plan_to_trajectory(joint_names, plan, dQ, dt):
     return trajectory
 
 
-def convert_plan_to_trajectory_toppra(robot, joint_names, plan):
+def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=True):
 
     import toppra as ta
     import toppra.constraint as constraint
@@ -767,7 +767,7 @@ def convert_plan_to_trajectory_toppra(robot, joint_names, plan):
     ss = np.linspace(0, 1, T)
     way_pts = plan.T
     vlims = robot.velocity_optimized_joint_limits.toarray().flatten()
-    alims = np.ones(ndof)
+    alims = np.ones(ndof) * 0.05
     
     path = ta.SplineInterpolator(ss, way_pts)
     pc_vel = constraint.JointVelocityConstraint(vlims)
@@ -781,6 +781,20 @@ def convert_plan_to_trajectory_toppra(robot, joint_names, plan):
     qs_sample = jnt_traj(ts_sample)
     qds_sample = jnt_traj(ts_sample, 1)
     qdds_sample = jnt_traj(ts_sample, 2)
+
+    if is_show:
+        import matplotlib.pyplot as plt
+        fig, axs = plt.subplots(3, 1, sharex=True)
+        for i in range(path.dof):
+            # plot the i-th joint trajectory
+            axs[0].plot(ts_sample, qs_sample[:, i], c="C{:d}".format(i))
+            axs[1].plot(ts_sample, qds_sample[:, i], c="C{:d}".format(i))
+            axs[2].plot(ts_sample, qdds_sample[:, i], c="C{:d}".format(i))
+        axs[2].set_xlabel("Time (s)")
+        axs[0].set_ylabel("Position (rad)")
+        axs[1].set_ylabel("Velocity (rad/s)")
+        axs[2].set_ylabel("Acceleration (rad/s2)")
+        plt.show()    
     
     trajectory = JointTrajectory()
     trajectory.header.stamp = rospy.Time.now()
