@@ -756,7 +756,7 @@ def convert_plan_to_trajectory(joint_names, plan, dQ, dt):
     return trajectory
 
 
-def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=True):
+def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=False):
 
     import toppra as ta
     import toppra.constraint as constraint
