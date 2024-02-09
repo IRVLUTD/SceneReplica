@@ -55,6 +55,31 @@ from gto.gto_planner import GTOPlanner
 from gto.ik_solver import IKSolver
 from gto.utils import load_yaml, get_root_dir, visualize_plan
 
+# mobile sam
+from moblie_sam import SamWrapper
+
+
+def get_tf_pose_trans_quat(target_frame, base_frame=None, is_matrix=False):
+    try:
+        transform = tf_buffer.lookup_transform(
+            base_frame, target_frame, rospy.Time.now(), rospy.Duration(1.0)
+        ).transform
+        quat = [
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
+        ]
+        trans = [transform.translation.x, transform.translation.y, transform.translation.z]
+    except (
+        tf2_ros.LookupException,
+        tf2_ros.ConnectivityException,
+        tf2_ros.ExtrapolationException,
+    ):
+        trans = None
+        quat = None
+    return trans, quat
+
 
 def get_tf_pose(target_frame, base_frame=None, is_matrix=False):
     try:
@@ -290,6 +315,8 @@ def grasp_with_trajectory(
     # for point in trajectory.points:
     #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
     # arm_action.follow_traj(trajectory)
+    group.stop()
+    group.clear_pose_targets()
     group.execute(robot_trajectory, wait=True)
     group.stop()
     group.clear_pose_targets()    
@@ -572,7 +599,6 @@ if __name__ == "__main__":
     scene_dir = os.path.join(args.data_dir, args.scene_dir)
     grasp_order_f = os.path.join(scene_dir, args.sgrasp_file)
     experiment_data_file = os.path.join(exp_dir, "exp_data.pk")
-
     
     # Read the ordering over graspit grasp for all objects in scene
     success_grasp_info = read_pickle_file(grasp_order_f)
@@ -614,6 +640,10 @@ if __name__ == "__main__":
     tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
     tf_listener = tf2_ros.TransformListener(tf_buffer)
     image_listener = ImageListener()
+
+    # mobile sam
+    sam_wrapper = SamWrapper()
+    print('initialized mobile sam')
 
     # Setup clients
     torso_action = FollowTrajectoryClient("torso_controller", ["torso_lift_joint"])
@@ -712,6 +742,49 @@ if __name__ == "__main__":
         logger.pose(f"estimated_{object_to_grasp}_pose: {RT_obj}")
         experiment_data["estimated_poses"][object_to_grasp] = RT_obj
         write_pickle_file(experiment_data, experiment_data_file)
+
+        # render image and compute sdf cost field
+        im_color, depth_image, xyz_image, xyz_base, cam_pose, intrinsic_matrix = image_listener.get_data()
+        depth_image[np.isnan(depth_image)] = np.inf
+        depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose)
+
+        # compute sdf cost of all points
+        gto_robot.setup_points_field(depth_pc.points)           
+        world_points = gto_robot.workspace_points
+        sdf_cost_all = depth_pc.get_sdf_cost(world_points)
+
+        # read yolo detection
+        topic_name = 'yolo/00_' + object_to_grasp[4:] + '_01_roi'
+        trans, quat = get_tf_pose_trans_quat(topic_name, 'head_camera_rgb_optical_frame')
+        box = np.array(quat) * trans[0]  # x1, y1, x2, y2
+
+        # mobile sam
+        sam_wrapper.set_image(im_color)
+        mask = sam_wrapper.predict(prompt_box=box)
+        target_mask = mask == 1
+
+        # compute sdf cost obstacle
+        depth_obstacle = depth_image.copy()
+        depth_obstacle[target_mask] = 2.0
+        depth_pc_obstacle = DepthPointCloud(depth_obstacle, intrinsic_matrix, cam_pose, target_mask)
+        sdf_cost_obstacle = depth_pc_obstacle.get_sdf_cost(world_points)                     
+
+        # show result
+        # fig = plt.figure()
+        # ax = fig.add_subplot(2, 2, 1)
+        # plt.imshow(depth_image)
+        # ax.set_title('depth image')
+        # ax = fig.add_subplot(2, 2, 2)
+        # plt.imshow(target_mask)
+        # ax.set_title('mask image')
+        # ax = fig.add_subplot(2, 2, 3)
+        # plt.imshow(depth_obstacle)
+        # ax.set_title('depth obstacle')
+        # ax = fig.add_subplot(2, 2, 4)
+        # plt.imshow(mask)
+        # ax.set_title('sam mask')                
+        # plt.show()
+
         direct_topdown = False
         if not direct_topdown:
             RT_gripper = get_gripper_rt(tf_buffer)
@@ -729,55 +802,8 @@ if __name__ == "__main__":
             #     logger.error(f"no grasp found valid for bowl.........")
             #     continue
             if (grasp_index is None ):
-                direct_topdown=True
+                direct_topdown = True
             else:
-
-                # render image and compute sdf cost field
-                im_color, depth_image, xyz_image, xyz_base, cam_pose, intrinsic_matrix = image_listener.get_data()
-                depth_image[np.isnan(depth_image)] = np.inf
-                depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose)
-
-                # compute sdf cost of all points
-                gto_robot.setup_points_field(depth_pc.points)           
-                world_points = gto_robot.workspace_points
-                sdf_cost_all = depth_pc.get_sdf_cost(world_points)
-
-                # read posecnn segmentation mask
-                data = rospy.wait_for_message('/posecnn_mask_00', Image, timeout=5)
-                mask = ros_numpy.numpify(data)
-                index = posecnn_classes.index(object_to_grasp)
-                target_mask = np.array(mask == index).astype(np.int32)
-                if np.sum(target_mask) == 0:
-                    # project object points to generate object mask
-                    mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
-                    obj_pts = get_object_verts(mesh_p, pose=RT_obj)
-                    x1, y1, x2, y2, pixels = compute_projected_box(depth_image, obj_pts, cam_pose, intrinsic_matrix)
-                    target_mask = np.zeros_like(depth_image)
-                    target_mask[y1:y2, x1:x2] = 1
-                    target_mask = target_mask == 1
-
-                # compute sdf cost obstacle
-                depth_obstacle = depth_image.copy()
-                depth_obstacle[target_mask] = 2.0
-                depth_pc_obstacle = DepthPointCloud(depth_obstacle, intrinsic_matrix, cam_pose, target_mask)
-                sdf_cost_obstacle = depth_pc_obstacle.get_sdf_cost(world_points)                     
-
-                # show result
-                fig = plt.figure()
-                ax = fig.add_subplot(2, 2, 1)
-                plt.imshow(depth_image)
-                ax.set_title('depth image')
-                ax = fig.add_subplot(2, 2, 2)
-                plt.imshow(target_mask)
-                ax.set_title('mask image')
-                ax = fig.add_subplot(2, 2, 3)
-                plt.imshow(depth_obstacle)
-                ax.set_title('depth obstacle')
-                ax = fig.add_subplot(2, 2, 4)
-                plt.imshow(mask)
-                ax.set_title('posecnn mask')                
-                plt.show()
-
                 # transform grasps to robot base
                 print('start checking collision of grasps')
                 start = time.time()
@@ -795,16 +821,6 @@ if __name__ == "__main__":
                     print(f'grasp {i}, collision ratio {ratio}')
                     if ratio > 0.01:
                         in_collision[i] = 1
-
-                    # visualization
-                    # colors = np.zeros(gripper_points.shape)
-                    # colors[sdf < 0, 2] = 1
-                    # colors[sdf > 0, 0] = 1
-                    # cloud = pyrender.Mesh.from_points(gripper_points, colors=colors)
-                    # scene = pyrender.Scene()
-                    # scene.add(cloud)
-                    # scene.add(pyrender.Mesh.from_points(depth_pc.points))
-                    # pyrender.Viewer(scene, use_raymond_lighting=True, point_size=2)
                 
                 RT_grasps_base = RT_grasps_base[in_collision == 0]
                 checking_time = time.time() - start
@@ -890,8 +906,10 @@ if __name__ == "__main__":
         if direct_topdown or (grasp_num == -1 or (not trajectory)):
             print("No plans found for direct grasping, trying TOP-DOWN!")
             logger.warning("No plans found for direct grasping, trying TOP-DOWN!")
-            mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
-            obj_pts = get_object_verts(mesh_p, pose=RT_obj)
+            # mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
+            # obj_pts = get_object_verts(mesh_p, pose=RT_obj)
+            obj_pts = xyz_base[target_mask].reshape((-1, 3))
+            obj_pts = obj_pts[~np.isnan(obj_pts[:, 2]), :]
             RT_grasp, g_width = model_based_top_down_grasp(obj_pts)
             print(f"Gripper Width: {g_width}")
             if object_to_grasp in {"052_extra_large_clamp", "025_mug"}:
@@ -963,4 +981,3 @@ if __name__ == "__main__":
         input("proceed next ?")
         input("proceed next ?")
         input("proceed next ?")
-        
