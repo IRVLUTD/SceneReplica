@@ -5,6 +5,7 @@ import copy
 import argparse
 import datetime
 import time
+import ros_numpy
 
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
@@ -15,6 +16,7 @@ import moveit_msgs.msg
 import tf2_ros
 from tf.transformations import quaternion_matrix
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import Image
 
 sys.path.append("./utils/")
 from ros_utils import ros_pose_to_rt, rt_to_ros_qt, rt_to_ros_pose
@@ -529,6 +531,10 @@ def make_args():
 
 if __name__ == "__main__":
     VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac", "gdrnpp"}
+    posecnn_classes = ['__background__', '002_master_chef_can', '003_cracker_box', '004_sugar_box', '005_tomato_soup_can', '006_mustard_bottle', \
+                         '007_tuna_fish_can', '008_pudding_box', '009_gelatin_box', '010_potted_meat_can', '011_banana', '019_pitcher_base', \
+                         '021_bleach_cleanser', '024_bowl', '025_mug', '035_power_drill', '036_wood_block', '037_scissors', '040_large_marker', \
+                         '052_extra_large_clamp', '061_foam_brick']
 
     args = make_args()
     table_height = args.table_height
@@ -736,13 +742,19 @@ if __name__ == "__main__":
                 world_points = gto_robot.workspace_points
                 sdf_cost_all = depth_pc.get_sdf_cost(world_points)
 
-                # project object points to generate object mask
-                mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
-                obj_pts = get_object_verts(mesh_p, pose=RT_obj)
-                x1, y1, x2, y2, pixels = compute_projected_box(depth_image, obj_pts, cam_pose, intrinsic_matrix)
-                target_mask = np.zeros_like(depth_image)
-                target_mask[y1:y2, x1:x2] = 1
-                target_mask = target_mask == 1
+                # read posecnn segmentation mask
+                data = rospy.wait_for_message('/posecnn_mask_00', Image, timeout=5)
+                mask = ros_numpy.numpify(data)
+                index = posecnn_classes.index(object_to_grasp)
+                target_mask = np.array(mask == index).astype(np.int32)
+                if np.sum(target_mask) == 0:
+                    # project object points to generate object mask
+                    mesh_p = os.path.join(model_dir, object_to_grasp, "textured_simple.obj")
+                    obj_pts = get_object_verts(mesh_p, pose=RT_obj)
+                    x1, y1, x2, y2, pixels = compute_projected_box(depth_image, obj_pts, cam_pose, intrinsic_matrix)
+                    target_mask = np.zeros_like(depth_image)
+                    target_mask[y1:y2, x1:x2] = 1
+                    target_mask = target_mask == 1
 
                 # compute sdf cost obstacle
                 depth_obstacle = depth_image.copy()
@@ -751,18 +763,20 @@ if __name__ == "__main__":
                 sdf_cost_obstacle = depth_pc_obstacle.get_sdf_cost(world_points)                     
 
                 # show result
-                # fig = plt.figure()
-                # ax = fig.add_subplot(1, 3, 1)
-                # plt.imshow(depth_image)
-                # plt.plot(pixels[:, 0], pixels[:, 1], 'ro')
-                # ax.set_title('depth image')
-                # ax = fig.add_subplot(1, 3, 2)
-                # plt.imshow(target_mask)
-                # ax.set_title('mask image')
-                # ax = fig.add_subplot(1, 3, 3)
-                # plt.imshow(depth_obstacle)
-                # ax.set_title('depth obstacle')
-                # plt.show()
+                fig = plt.figure()
+                ax = fig.add_subplot(2, 2, 1)
+                plt.imshow(depth_image)
+                ax.set_title('depth image')
+                ax = fig.add_subplot(2, 2, 2)
+                plt.imshow(target_mask)
+                ax.set_title('mask image')
+                ax = fig.add_subplot(2, 2, 3)
+                plt.imshow(depth_obstacle)
+                ax.set_title('depth obstacle')
+                ax = fig.add_subplot(2, 2, 4)
+                plt.imshow(mask)
+                ax.set_title('posecnn mask')                
+                plt.show()
 
                 # transform grasps to robot base
                 print('start checking collision of grasps')
