@@ -263,7 +263,7 @@ def grasp_with_rt(
 
 
 def grasp_with_trajectory(
-    arm_action, gripper, dt, scene, object_name, display_trajectory_publisher, trajectory
+    arm_action, gripper, group, scene, object_name, display_trajectory_publisher, trajectory
 ):
     """
     A method the included the actions of pushing and sweeping according to direction.
@@ -287,7 +287,10 @@ def grasp_with_trajectory(
     input("execute?")
     # for point in trajectory.points:
     #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
-    arm_action.follow_traj(trajectory)
+    # arm_action.follow_traj(trajectory)
+    group.execute(robot_trajectory, wait=True)
+    group.stop()
+    group.clear_pose_targets()    
 
     # remove the target from the planning scene for grasping
     scene.remove_world_object(object_name)
@@ -684,6 +687,9 @@ if __name__ == "__main__":
 
     # main object loop
     for obj_i, object_to_grasp in enumerate(object_order):
+        # if object_to_grasp != '035_power_drill':
+        #     continue            
+
         grasp_num, trajectory_standoff, trajectory_final = None, None, None
         gt_experiment_data_file = os.path.join(exp_dir, f"gt_exp_data_{obj_i}.pk")
         gripper.open()
@@ -893,7 +899,7 @@ if __name__ == "__main__":
             grasp_with_trajectory(
                 arm_action,
                 gripper,
-                planner.dt,
+                group,
                 scene,
                 object_to_grasp,
                 display_trajectory_publisher,

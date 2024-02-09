@@ -767,7 +767,7 @@ def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=False):
     ss = np.linspace(0, 1, T)
     way_pts = plan.T
     vlims = robot.velocity_optimized_joint_limits.toarray().flatten() * 0.8
-    alims = np.ones(ndof) * 0.02
+    alims = np.ones(ndof) * 0.04
     
     path = ta.SplineInterpolator(ss, way_pts)
     pc_vel = constraint.JointVelocityConstraint(vlims)
@@ -776,8 +776,12 @@ def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=False):
     instance = algo.TOPPRA([pc_vel, pc_acc], path, parametrizer="ParametrizeConstAccel")
     jnt_traj = instance.compute_trajectory()
 
-    num = 200
-    ts_sample = np.linspace(0, jnt_traj.duration, num)
+    num1 = 150
+    num2 = 50
+    num = num1 + num2
+    ts_sample1 = np.linspace(0, jnt_traj.duration / 2, num1)
+    ts_sample2 = np.linspace(jnt_traj.duration / 2, jnt_traj.duration, num2)
+    ts_sample = np.concatenate((ts_sample1, ts_sample2))
     qs_sample = jnt_traj(ts_sample)
     qds_sample = jnt_traj(ts_sample, 1)
     qdds_sample = jnt_traj(ts_sample, 2)
