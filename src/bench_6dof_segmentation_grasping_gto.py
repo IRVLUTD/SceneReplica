@@ -1060,7 +1060,7 @@ if __name__ == "__main__":
                 # Also see certain parts of the segmentation based top-down pipeline
                 logger.inform(f"Step: {step} | Performing TOP-DOWN Grasping")
                 RT_grasp, gripper_width = model_free_top_down_grasp(
-                                            camera_pose, mask_id, label, xyz_image, percent_filter=0.0)
+                                            camera_pose, mask_id, label, xyz_image)
                 if gripper_width > (0.1 - 0.005):
                     logger.warning(
                         f"Step: {step} | Large Gripper Width! Grasp Center will be adjusted"

@@ -422,7 +422,7 @@ def model_free_top_down_grasp(camera_pose, mask_id, label, xyz_image, percent_fi
     if gripper_finger_length >= height:
         # try to go down the entire object and grasp from bottom
         # z_tip = z_min + 0.003 # 1mm offset
-        z_tip = z_min - 0.01 # 1mm offset
+        z_tip = z_min - 0.005 # 1mm offset
     else:
         # NOTE: Two cases to consider here
         # Case1: H/2 > L           ---> ztip = z_c + (H/2 - L) {go a bit more up than center}
