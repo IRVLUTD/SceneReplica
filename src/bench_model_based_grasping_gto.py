@@ -252,7 +252,7 @@ def grasp_with_rt(
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
 
-    input("execute?")
+    input(f"execute {object_name}?")
     group.execute(trajectory, wait=True)
     group.stop()
     group.clear_pose_targets()
@@ -278,7 +278,7 @@ def grasp_with_rt(
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
 
-    input("execute?")
+    input(f"execute? {object_name}")
     group.execute(trajectory, wait=True)
     group.stop()
     group.clear_pose_targets()

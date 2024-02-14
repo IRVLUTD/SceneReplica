@@ -187,7 +187,7 @@ class MsmSegListener:
         # print(self.camera_pose)
 
         queue_size = 1
-        slop_seconds = 3.0
+        slop_seconds = 5.0
         ts = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub, label_sub, score_sub], queue_size, slop_seconds)
         ts.registerCallback(self.callback_rgbd)
         

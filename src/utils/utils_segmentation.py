@@ -254,4 +254,4 @@ def compute_segments_assignment(prediction, gt):
     assignments = m.compute(
         F.max() - F.copy()
     )  # list of (y,x) indices into F (these are the matchings)
-    return assignments, labels_pred, labels_gt
+    return assignments, labels_pred, labels_gt, F

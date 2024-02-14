@@ -68,9 +68,12 @@ def compute_obstacle_for_object(bbox, camera_pose, label, xyz_image):
     for i in range(bbox.shape[0]):
         mask_id = bbox[i, -1]
         target_pts = get_target_pts(camera_pose, mask_id, label, xyz_image)
+        print(target_pts.shape, mask_id)
         center, xlen, ylen, zlen, theta = compute_oriented_bbox(
             target_pts
         )
+        if center is None:
+            continue
         p = PoseStamped()
         p.header.frame_id = robot.get_planning_frame()
         p.pose.position.x = center[0]
@@ -814,7 +817,7 @@ if __name__ == "__main__":
             # -----------------------------------------------------------------#
             ## Associate the GT Seg and Pred Seg Label images and choose which
             ## segment to proceed for grasping
-            seg_assignment, labels_pred, labels_gt = compute_segments_assignment(label, gt_label_img)
+            seg_assignment, labels_pred, labels_gt, F = compute_segments_assignment(label, gt_label_img)
             target_maskid_gt = CLASSESS_ALL.index(object_to_grasp)
             print(f"Target maskid_gt: {target_maskid_gt} | LABELS_GT: {labels_gt}")
             print(f"Pred Label ids: {labels_pred}")
@@ -824,10 +827,11 @@ if __name__ == "__main__":
             print(f"Assignmnet: {seg_assignment}")
             for seg_a in seg_assignment:
                 idx_in_gt, idx_in_pred = seg_a # changed order of tuple
+                F_score = F[idx_in_gt, idx_in_pred]
                 if idx_in_pred < labels_pred.shape[0] and idx_in_gt < labels_gt.shape[0]:
                     pr_maskid = labels_pred[idx_in_pred]
                     gt_maskid = labels_gt[idx_in_gt]
-                    if gt_maskid == target_maskid_gt:
+                    if gt_maskid == target_maskid_gt and F_score > 0:
                         target_maskid_label = pr_maskid
                         break
             print(f"*******object order: {object_order} ************")
@@ -864,7 +868,7 @@ if __name__ == "__main__":
             mask_id = bbox_grasp[-1]
             
             pc_scene_cam = get_scene_pc(xyz_image) # scene's pc (N, 3) in camera frame!
-            # np.save("/home/ninad/depth_pc_cam.npy", pc_scene_cam)
+            np.save("/home/ninad/depth_pc_cam.npy", pc_scene_cam)
             rospy.sleep(3)
             obj_pts_base = get_target_pts(camera_pose, mask_id, label, xyz_image)
             obj_pts_cam = get_target_pts(camera_pose, mask_id, label, xyz_image, frame="camera")
@@ -1056,7 +1060,7 @@ if __name__ == "__main__":
                 # Also see certain parts of the segmentation based top-down pipeline
                 logger.inform(f"Step: {step} | Performing TOP-DOWN Grasping")
                 RT_grasp, gripper_width = model_free_top_down_grasp(
-                                            camera_pose, mask_id, label, xyz_image)
+                                            camera_pose, mask_id, label, xyz_image, percent_filter=0.0)
                 if gripper_width > (0.1 - 0.005):
                     logger.warning(
                         f"Step: {step} | Large Gripper Width! Grasp Center will be adjusted"

@@ -415,18 +415,20 @@ def model_free_top_down_grasp(camera_pose, mask_id, label, xyz_image, percent_fi
     z_max = np.max(z_pts)
     z_min = np.min(z_pts)
     z_mean = np.mean(z_pts)
+    print(z_min, z_mean, z_max)
     height = z_max - z_min
     z_c = z_min + height/2 # middle point (not always equal to mean)
     print("H, max, min, mean, center", height, z_max, z_min, z_mean, z_c)
     if gripper_finger_length >= height:
         # try to go down the entire object and grasp from bottom
-        z_tip = z_min + 0.003 # 1mm offset
+        # z_tip = z_min + 0.003 # 1mm offset
+        z_tip = z_min - 0.01 # 1mm offset
     else:
         # NOTE: Two cases to consider here
         # Case1: H/2 > L           ---> ztip = z_c + (H/2 - L) {go a bit more up than center}
         # Case2: H/2 < L but H > L ---> ztip = z_c - (L - H/2) {go a bit more down than center} == z_c + (H/2 - L)
         z_tip = z_c + (height/2 - gripper_finger_length)
-    z_tip = max(z_tip, 0.745) # table height check
+    #z_tip = max(z_tip, 0.745) # table height check
     print("Z_TIP:", z_tip)
     z_gripper_base = z_tip + gripper_tip_to_base_offset
     RT[2, 3] = z_gripper_base
@@ -486,6 +488,9 @@ def compute_oriented_bbox(points_base):
     # print(f"OLD shape: {points_base.shape}")
     # print(f"OLD MAX: {np.max(points_base, axis=0)} | MIN: {np.min(points_base, axis=0)}")
     points_base = points_base[mask]
+    print(points_base.shape)
+    if points_base.shape[0] == 0:
+        return None, None, None, None, None
     # print(f"NEW MAX: {np.max(points_base, axis=0)} | MIN: {np.min(points_base, axis=0)}")
     # print(f"NEW shape: {points_base.shape}\n")
 
