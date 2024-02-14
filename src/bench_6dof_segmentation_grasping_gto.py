@@ -6,6 +6,7 @@ import os
 import copy
 import argparse
 import datetime
+import time
 from scipy.io import loadmat
 import imageio.v2 as imageio
 
@@ -28,6 +29,7 @@ from gripper import Gripper
 from utils_control import FollowTrajectoryClient, PointHeadClient, JointListener
 from stow_or_tuck_arm import reset_arm_stow
 from image_listener import (
+    ImageListener,
     MsmSegListener,
     UoisSegListener,
     GraspPoseListener,
@@ -47,8 +49,19 @@ from grasp_utils import (
     rotate_gripper,
     move_arm_to_dropoff,
     user_confirmation,
+    convert_plan_to_trajectory_toppra,
 )
 from random import shuffle
+
+# GTO planner
+import _init_paths
+from mesh_to_sdf.depth_point_cloud import DepthPointCloud
+from optas.visualize import Visualizer
+from gto.gto_models import GTORobotModel
+from gto.gto_planner import GTOPlanner
+from gto.ik_solver import IKSolver
+from gto.utils import load_yaml, get_root_dir, visualize_plan
+
 
 def compute_obstacle_for_object(bbox, camera_pose, label, xyz_image):
     scene_boxes = [] # stores markers
@@ -318,6 +331,47 @@ def grasp(
     rospy.sleep(1)
 
     return True
+
+
+def grasp_with_trajectory(
+    gripper, group, scene, object_name, display_trajectory_publisher, trajectory
+):
+    """
+    A method the included the actions of pushing and sweeping according to direction.
+    It first set its arm to the left/right of the given location, then sweeps to the left/right of the cube to achieve
+    the pushing motion
+    :param group: the moveit group of joints
+    :param display_trajectory_publisher: for visualization of the planned trajectory
+    :param RT_grasp: gripper pose for grasping
+    :return:
+    """
+
+    # visualize plan
+    display_trajectory = moveit_msgs.msg.DisplayTrajectory()
+    display_trajectory.trajectory_start = robot.get_current_state()
+    robot_trajectory = moveit_msgs.msg.RobotTrajectory()
+    robot_trajectory.joint_trajectory = trajectory
+    display_trajectory.trajectory.append(robot_trajectory)
+    # Publish
+    display_trajectory_publisher.publish(display_trajectory)
+
+    input("execute?")
+    # for point in trajectory.points:
+    #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
+    # arm_action.follow_traj(trajectory)
+    group.stop()
+    group.clear_pose_targets()
+    group.execute(robot_trajectory, wait=True)
+    group.stop()
+    group.clear_pose_targets()    
+
+    # remove the target from the planning scene for grasping
+    scene.remove_world_object(object_name)
+
+    # close gripper
+    print("close gripper")
+    gripper.close()
+    rospy.sleep(3)
 
 
 def process_boxes(bbox, order="random"):
@@ -613,6 +667,9 @@ if __name__ == "__main__":
     )  # Raise the torso using just a controller
     head_action.look_at(0.45, 0, table_height, "base_link")  # Look at fixed loc
 
+    # image listener
+    image_listener = ImageListener()
+
     # ---------------- Initialize moveit components -------------------------- #
     moveit_commander.roscpp_initialize(sys.argv)
     group = moveit_commander.MoveGroupCommander("arm")
@@ -624,6 +681,46 @@ if __name__ == "__main__":
     arm_action = FollowTrajectoryClient("arm_controller", group.get_joints())
     # Setup the MoveIt Planning Scene with table and base
     add_table_base_to_planning(scene, table_height)
+
+    display_trajectory_publisher = rospy.Publisher(
+        "/move_group/display_planned_path",
+        moveit_msgs.msg.DisplayTrajectory,
+        queue_size=20,
+    )    
+
+    # ---------------- Initialize GTO Planner -------------------------- #
+    # load config file
+    robot_name = 'fetch'
+    root_dir = get_root_dir()
+    config_file = os.path.join(root_dir, 'data', 'configs', f'{robot_name}.yaml')
+    if not os.path.exists(config_file):
+        print(f'robot {robot_name} not supported', config_file)
+        sys.exit(1) 
+    cfg = load_yaml(config_file)['robot_cfg']
+    print(cfg)    
+    
+    # load robot model
+    robot_model_dir = os.path.join(root_dir, 'data', 'robots', cfg['robot_name'])
+    urdf_filename = os.path.join(root_dir, cfg['urdf_robot_path']) 
+    # define the standoff pose for collision checking
+    offset = -0.01
+    base_position = [0, 0, 0]
+
+    gto_robot = GTORobotModel(robot_model_dir,
+                          urdf_filename=urdf_filename, 
+                          time_derivs=[0, 1],  # i.e. joint position/velocity trajectory
+                          param_joints=cfg['param_joints'],
+                          collision_link_names=cfg['collision_link_names'])
+
+    # load robot gripper model
+    urdf_filename = os.path.join(robot_model_dir, f"{robot_name}_gripper.urdf")
+    gripper_model = GTORobotModel(robot_model_dir, urdf_filename=urdf_filename)    
+
+    # Initialize planner
+    print('Initialize planner')
+    planner = GTOPlanner(gto_robot, cfg['link_ee'], cfg['link_gripper'])
+    ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'], collision_avoidance=False)
+    
 
     # --------------- Init Listner and Setup Robot and Gripper --------------- #
     # image listener
@@ -816,6 +913,38 @@ if __name__ == "__main__":
             write_pickle_file(experiment_data, experiment_data_file)
 
             # NOTE: Implemented code similar to model based grasping
+            # render image and compute sdf cost field
+            im_color, depth_image, xyz_image, xyz_base, cam_pose, intrinsic_matrix = image_listener.get_data()
+            depth_image[np.isnan(depth_image)] = np.inf
+            depth_pc = DepthPointCloud(depth_image, intrinsic_matrix, cam_pose)
+
+            # compute sdf cost of all points
+            gto_robot.setup_points_field(depth_pc.points)           
+            world_points = gto_robot.workspace_points
+            sdf_cost_all = depth_pc.get_sdf_cost(world_points)
+
+            # compute sdf cost obstacle
+            target_mask = (label == target_maskid_label)
+            depth_obstacle = depth_image.copy()
+            depth_obstacle[target_mask] = 2.0
+            depth_pc_obstacle = DepthPointCloud(depth_obstacle, intrinsic_matrix, cam_pose, target_mask)
+            sdf_cost_obstacle = depth_pc_obstacle.get_sdf_cost(world_points)
+
+            if user_confirm:
+                # show result
+                fig = plt.figure()
+                ax = fig.add_subplot(2, 2, 1)
+                plt.imshow(depth_image)
+                ax.set_title('depth image')
+                ax = fig.add_subplot(2, 2, 2)
+                plt.imshow(target_mask)
+                ax.set_title('mask image')
+                ax = fig.add_subplot(2, 2, 3)
+                plt.imshow(depth_obstacle)
+                ax.set_title('depth obstacle')               
+                plt.show()
+
+            # motion planning
             direct_topdown = False
             RT_grasp = None # Set the final grasp here
             if grasp_index is None:
@@ -823,16 +952,105 @@ if __name__ == "__main__":
                 direct_topdown = True
             else:
                 # Motion planning for sampled grasps!
-                RT_grasp, grasp_num, traj_standoff, traj_final = plan_grasp(
-                    robot,
-                    group,
-                    scene,
-                    RT_grasps_base,
-                    bbox,
-                    scene_boxes
-                )
+                print('start checking collision of grasps')
+                start = time.time()
+                n = RT_grasps_base.shape[0]
+                in_collision = np.zeros((n, ), dtype=np.int32)
+                for i in range(n):
+                    RT = RT_grasps_base[i]
+
+                    # check if the grasp is in collision
+                    RT_off = RT @ gto_robot.get_standoff_pose(offset, cfg['axis_standoff'])
+                    gripper_points, normals = gripper_model.compute_fk_surface_points(cfg['gripper_open_offsets'], tf_base=RT_off)
+                    sdf = depth_pc_obstacle.get_sdf(gripper_points)
+
+                    ratio = np.sum(sdf < 0) / len(sdf)
+                    print(f'grasp {i}, collision ratio {ratio}')
+                    if ratio > 0.01:
+                        in_collision[i] = 1
+                
+                RT_grasps_base = RT_grasps_base[in_collision == 0]
+                checking_time = time.time() - start
+                print('Checking grasp collision time', checking_time)
+                print('Among %d grasps, %d in collision, %d collision-free' % (n, np.sum(in_collision), RT_grasps_base.shape[0]))
+                if RT_grasps_base.shape[0] == 0:
+                    direct_topdown=True
+                else:
+                    # test IK for remaining grasps
+                    print('start IK')
+                    start = time.time()
+                    ik_solver.setup_optimization()
+                    n = RT_grasps_base.shape[0]
+                    found_ik = np.zeros((n, ), dtype=np.int32)
+
+                    # get current joint
+                    joint_name = joint_listener.joint_name
+                    joint_position = joint_listener.joint_position
+                    q0 = np.zeros((gto_robot.ndof, 1))
+                    for i in range(gto_robot.ndof):
+                        name = gto_robot.actuated_joint_names[i]
+                        if name in joint_name:
+                            q0[i] = joint_position[joint_name.index(name)]
+                    # set gripper joint open
+                    q0[cfg['finger_index'], 0] = cfg['gripper_open_offsets']
+
+                    q_solutions = np.zeros((gto_robot.ndof, n), dtype=np.float32)
+                    for i in range(n):
+                        RT = RT_grasps_base[i].copy()
+                        q_solution, err_pos, err_rot, cost_collision = ik_solver.solve_ik(q0, RT, sdf_cost_obstacle, base_position)
+                        q_solutions[:, i] = q_solution
+                        if err_pos < 0.01 and err_rot < 5 and cost_collision < 5:
+                            found_ik[i] = 1
+                    RT_grasps_base = RT_grasps_base[found_ik == 1]
+                    q_solutions = q_solutions[:, found_ik == 1]
+                    ik_time = time.time() - start
+                    print('IK time', ik_time)
+                    print('Among %d grasps, %d found IK' % (n, np.sum(found_ik)))
+                    print('IK solutions with shape', q_solutions.shape)
+                    if RT_grasps_base.shape[0] == 0:
+                        direct_topdown=True
+                    else:
+                        # plan to a grasp set
+                        qc = q0.flatten()
+                        print('start planning')
+                        start = time.time()
+                        plan, dQ, cost = planner.plan_goalset(qc, RT_grasps_base, sdf_cost_all, sdf_cost_obstacle, 
+                                                                base_position, q_solutions, use_standoff=True, axis_standoff=cfg['axis_standoff'])
+                        planning_time = time.time() - start
+                        print('plannnig time', planning_time, 'cost', cost)
+
+                        # check if the robot plan is in collision
+                        in_collision = False
+                        plan = np.array(plan)
+                        for i in range(plan.shape[1]):
+                            q = plan[:, i]
+                            points_base, _ = gto_robot.compute_fk_surface_points(q)
+                            sdf = depth_pc_obstacle.get_sdf(points_base)
+                            # at least 10 body points in collision
+                            num = np.sum(sdf < 0)
+                            if num > 0:
+                                print('number of points in collision:', np.sum(sdf < 0))
+                            if num > 20:
+                                print('****************************** plan in collision ***************************')
+                                print('number of points in collision:', np.sum(sdf < 0))
+                                print('****************************** plan in collision ***************************')
+                                in_collision = True
+                                break                        
+
+                        # convert to trajectory
+                        if in_collision:
+                            trajectory = None
+                        else:
+                            plan_ros = plan[gto_robot.optimized_joint_indexes, :]
+                            dQ = dQ[gto_robot.optimized_joint_indexes, :]
+                            # trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
+                            trajectory = convert_plan_to_trajectory_toppra(gto_robot, gto_robot.optimized_joint_names, plan_ros)
+                        
+                        # visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
+
                 gripper_width = 0.05 # Set a dummy value for 6Dof grasp
-            if direct_topdown or (grasp_num == -1 or (not traj_standoff) or (not traj_final)):
+            
+            if direct_topdown or not trajectory:
                 # Top Down Grasping
                 # Compute an top down RT_grasp and use grasp_with_rt()
                 # Also see certain parts of the segmentation based top-down pipeline
@@ -843,43 +1061,49 @@ if __name__ == "__main__":
                     logger.warning(
                         f"Step: {step} | Large Gripper Width! Grasp Center will be adjusted"
                     )
-            elif traj_standoff and traj_final and grasp_num != -1:
-                # RT_grasp should already set before for Non-topdown grasp
-                assert RT_grasp is not None
-            
-            logger.inform(f"Step: {step} | Grasp motion plan computed sucessfully")
-            assert(RT_grasp is not None)
-            object_name = None
-            input("execute grasping?")
-            display_trajectory_publisher = rospy.Publisher(
-                "/move_group/display_planned_path",
-                moveit_msgs.msg.DisplayTrajectory,
-                queue_size=20,
-            )
-            success = grasp(
-                robot,
-                gripper,
-                group,
-                arm_action,
-                scene,
-                bbox,
-                scene_boxes,
-                RT_grasp,
-                gripper_width,
-                object_name,
-                display_trajectory_publisher,
-                user_confirm,
-                slow_execution=False,
-            )
-            rospy.sleep(1)
-            if not success:
-                # graspable[bbox_id] = 0
-                bbox_prev = bbox
-                logger.error(f"Step: {step} | FAILED Grasping Stage!")
-                print("Please Remove the Object from Scene")
-            else:
-                bbox_prev = bbox
-                logger.inform(f"Step: {step} | SUCCESS Grasp Stage!")
+
+                logger.inform(f"Step: {step} | Grasp motion plan computed sucessfully")
+                assert(RT_grasp is not None)
+                object_name = None
+                input("execute grasping?")
+
+                success = grasp(
+                    robot,
+                    gripper,
+                    group,
+                    arm_action,
+                    scene,
+                    bbox,
+                    scene_boxes,
+                    RT_grasp,
+                    gripper_width,
+                    object_name,
+                    display_trajectory_publisher,
+                    user_confirm,
+                    slow_execution=False,
+                )
+                rospy.sleep(1)
+                if not success:
+                    # graspable[bbox_id] = 0
+                    bbox_prev = bbox
+                    logger.error(f"Step: {step} | FAILED Grasping Stage!")
+                    print("Please Remove the Object from Scene")
+                else:
+                    bbox_prev = bbox
+                    logger.inform(f"Step: {step} | SUCCESS Grasp Stage!")
+
+            elif trajectory:
+                grasp_with_trajectory(
+                    gripper,
+                    group,
+                    scene,
+                    object_to_grasp,
+                    display_trajectory_publisher,
+                    trajectory,
+                )
+
+            ####### remove planning scene objects for lifting
+            scene.remove_world_object()                
 
             rospy.sleep(1) # add a delay before querying for gripper open/close status
             # ------------------------ LIFTING OBJECT --------------------------#
