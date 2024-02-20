@@ -752,5 +752,28 @@ def test_point_publisher():
 
 if __name__ == '__main__':
     # test_basic_img()
-    test_point_publisher()
+    # test_point_publisher()
+    rospy.init_node("test_img_save")
+    image_listener = ImageListener()
+    rospy.sleep(3)
+    factor_depth=1000
+    step=0
+    while True:
+        print(f"step {step}")
+        step+=1
+        im_color, depth_image, xyz_image, xyz_base, cam_pose, intrinsic_matrix = image_listener.get_data()
+        # convert depth to unit16
+        # depth_save = np.array(depth_image* factor_depth, dtype=np.uint16)
+        save_name_rgb = 'color-{:06}.png'.format(step)
+        save_name_depth = 'depth-{:06}.png'.format(step)   
+        cv2.imwrite(save_name_rgb, im_color)
+        cv2.imwrite(save_name_depth, depth_image)
+        
+
+        # if KeyboardInterrupt:
+        #     break
+        rospy.sleep(2)
+    # rospy.spin()
+    exit(0)
+        
 
