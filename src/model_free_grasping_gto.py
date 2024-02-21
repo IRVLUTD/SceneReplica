@@ -612,7 +612,7 @@ if __name__ == "__main__":
             0.4,
         ]
     )  # Raise the torso using just a controller
-    head_action.look_at(0.45, 0, table_height, "base_link")  # Look at fixed loc
+    head_action.look_at(0.45, 0, table_height + 0.58, "base_link")  # Look at fixed loc
 
     # image listener
     image_listener = ImageListener()
@@ -620,7 +620,7 @@ if __name__ == "__main__":
     # ---------------- Initialize moveit components -------------------------- #
     moveit_commander.roscpp_initialize(sys.argv)
     group = moveit_commander.MoveGroupCommander("arm")
-    group.set_max_velocity_scaling_factor(1.0)
+    group.set_max_velocity_scaling_factor(0.5)
     group_grp = moveit_commander.MoveGroupCommander("gripper")  # Gripper's group
     scene = moveit_commander.PlanningSceneInterface()
     scene.remove_world_object()
@@ -729,23 +729,11 @@ if __name__ == "__main__":
             print(f"Step: {step} | maskid_label_Pred: {target_maskid_label}\n")
             print(f"************************************************")
             
-            # VIZ
-            if user_confirm:
-                _target_mask = (label == target_maskid_label)  
-                fig = plt.figure()
-                ax = fig.add_subplot(1, 2, 1)
-                plt.imshow(im)
-                ax.set_title('image')
-                ax = fig.add_subplot(1, 2, 2)
-                plt.imshow(_target_mask)
-                ax.set_title('target')
-                plt.show()
-            
             # ------------------------ GRASP PLANNING --------------------------#
             mask_id = bbox_grasp[-1]
             
             pc_scene_cam = get_scene_pc(xyz_image) # scene's pc (N, 3) in camera frame!
-            np.save("/home/yuxiang/depth_pc_cam.npy", pc_scene_cam)
+            np.save("/home/ninad/depth_pc_cam.npy", pc_scene_cam)
             rospy.sleep(3)
             obj_pts_base = get_target_pts(camera_pose, mask_id, label, xyz_image)
             obj_pts_cam = get_target_pts(camera_pose, mask_id, label, xyz_image, frame="camera")
@@ -823,6 +811,8 @@ if __name__ == "__main__":
                 ax = fig.add_subplot(2, 2, 3)
                 plt.imshow(depth_obstacle)
                 ax.set_title('depth obstacle')               
+                ax = fig.add_subplot(2, 2, 4)
+                plt.imshow(im[:, :, (2, 1, 0)])
                 plt.show()
 
             # motion planning
@@ -911,7 +901,7 @@ if __name__ == "__main__":
                             num = np.sum(sdf < 0)
                             if num > 0:
                                 print('number of points in collision:', np.sum(sdf < 0))
-                            if num > 20:
+                            if num > 30:
                                 print('****************************** plan in collision ***************************')
                                 print('number of points in collision:', np.sum(sdf < 0))
                                 print('****************************** plan in collision ***************************')
@@ -927,7 +917,7 @@ if __name__ == "__main__":
                             # trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
                             trajectory = convert_plan_to_trajectory_toppra(gto_robot, gto_robot.optimized_joint_names, plan_ros)
                         
-                        visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
+                        # visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
 
                 gripper_width = 0.05 # Set a dummy value for 6Dof grasp
             
@@ -955,7 +945,7 @@ if __name__ == "__main__":
                 q0[cfg['finger_index'], 0] = 0
 
                 # move to standoff
-                plan_standoff = plan[:, np.arange(standoff_offset - 10, -1)]
+                plan_standoff = plan[:, np.arange(standoff_offset - 20, -1)]
                 plan_reverse = plan_standoff[:, ::-1]
                 plan_reverse[cfg['finger_index'], :] = 0
                 plan_all = np.hstack((q0, plan_reverse))
@@ -971,31 +961,6 @@ if __name__ == "__main__":
             ####### remove planning scene objects for lifting
             scene.remove_world_object()
             rospy.sleep(1) # add a delay before querying for gripper open/close status
-        
-            # ----------------------- MOVING OBJECT ------------------------#
-            if gripper.is_fully_closed() or gripper.is_fully_open():
-                print("Gripper fully open/closed (after Lifting)....Not Moving!")
-                logger.failure_gripper(
-                    f"Step: {step} | Gripper fully open/closed after [Lifting] ... Not [Moving] !"
-                )
-            else:
-                print("Trying to move object")
-                RT_gripper = get_gripper_rt(tf_buffer)
-                try:
-                    rotate_gripper(group, RT_gripper)
-                except:
-                    pass
-                RT_gripper = get_gripper_rt(tf_buffer)
-                try:
-                    move_arm_to_dropoff(group, RT_gripper, x_final=0.78)
-                except:
-                    pass
-                if gripper.is_fully_closed() or gripper.is_fully_open():
-                    print("Gripper fully open/closed (after Moving)....")
-                    logger.failure_dropoff(
-                        f"Step: {step} | Gripper fully open/closed after [Moving] ... "
-                    )
-            rospy.sleep(1)
 
             # ------------------------ OPEN GRIPPER & STOW ---------------------#
             input("Open Gripper??")

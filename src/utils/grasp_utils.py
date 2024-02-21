@@ -771,7 +771,7 @@ def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=False):
     T = plan.shape[1]
     ss = np.linspace(0, 1, T)
     way_pts = plan.T
-    vlims = robot.velocity_optimized_joint_limits.toarray().flatten() * 0.8
+    vlims = robot.velocity_optimized_joint_limits.toarray().flatten() * 0.5
     alims = np.ones(ndof) * 0.02
     
     path = ta.SplineInterpolator(ss, way_pts)
