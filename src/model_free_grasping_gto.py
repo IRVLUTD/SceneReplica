@@ -336,8 +336,8 @@ def grasp(
     return True
 
 
-def grasp_with_trajectory(
-    gripper, group, scene, object_name, display_trajectory_publisher, trajectory
+def execute_trajectory(
+    group, display_trajectory_publisher, trajectory
 ):
     """
     A method the included the actions of pushing and sweeping according to direction.
@@ -366,15 +366,7 @@ def grasp_with_trajectory(
     group.clear_pose_targets()
     group.execute(robot_trajectory, wait=True)
     group.stop()
-    group.clear_pose_targets()    
-
-    # remove the target from the planning scene for grasping
-    scene.remove_world_object(object_name)
-
-    # close gripper
-    print("close gripper")
-    gripper.close()
-    rospy.sleep(3)
+    group.clear_pose_targets()
 
 
 def process_boxes(bbox, order="random"):
@@ -513,14 +505,6 @@ def make_args():
     )
 
     parser.add_argument(
-        "-s",
-        "--scene_idx",
-        type=int,
-        required=True,
-        help="ID for the scene under evaluation",
-    )
-
-    parser.add_argument(
         "--seg_method",
         type=str,
         required=True,
@@ -535,30 +519,9 @@ def make_args():
     )
 
     parser.add_argument(
-        "--obj_order",
-        type=str,
-        required=True,
-        help='Order to grasp object. Choose from {"nearest_first", "random"}',
-    )
-
-    parser.add_argument(
         "--safe_mode",
         action="store_true",
         help="Whether to ask user for confirmation before important steps and VIZ things",
-    )
-
-    parser.add_argument(
-        "--data_dir",
-        type=str,
-        default="/home/ninad/Datasets/benchmarking",
-        help="Path to parent of model dataset, grasp and scenes dir",
-    )
-
-    parser.add_argument(
-        "--scene_dir",
-        type=str,
-        default="final_scenes",
-        help="Path to data dir",
     )
 
     parser.add_argument(
@@ -590,8 +553,6 @@ if __name__ == "__main__":
     table_height = args.table_height
     seg_method = args.seg_method
     grasp_method = args.grasp_method
-    scene_idx = args.scene_idx
-    order_to_grasp = args.obj_order
     user_confirm = args.safe_mode
 
     # Data dir to hold the logs and results for experiments
@@ -603,13 +564,10 @@ if __name__ == "__main__":
     curr_time = datetime.datetime.now()
     exp_time = "{:%y-%m-%d_T%H%M%S}".format(curr_time)
     exp_args = (
-        f"grasp-{grasp_method}_seg-{seg_method}_scene-{scene_idx}_ord-{order_to_grasp}"
+        f"grasp-{grasp_method}_seg-{seg_method}_model_free"
     )
     exp_dir = os.path.join(exp_root_dir, exp_time + "_" + exp_args)
 
-    if order_to_grasp not in {"nearest_first", "random"}:
-        print("Incorrect option for object ordering. See help!")
-        sys.exit(0)
     if seg_method not in VALID_SEG_METHODS:
         print(f"Incorrect seg method {args.seg_method}! See --help for details.")
         sys.exit(0)
@@ -620,31 +578,17 @@ if __name__ == "__main__":
         os.makedirs(exp_dir, exist_ok=True)
 
     logger = get_custom_logger(os.path.join(exp_dir, str(curr_time) + ".log"))
-    logger.inform(f"scene_id:{scene_idx}")
     logger.inform(f"grasp_method:{grasp_method}")
     logger.inform(f"seg_method:{seg_method}")
-    logger.inform(f"ordering:{order_to_grasp}")
     logger.inform(f"table_height:{table_height}")
 
     # LOAD DATA FOR SCENES
-    model_dir = os.path.join(args.data_dir, "gazebo_models_all_simple")
-    scene_dir = os.path.join(args.data_dir, args.scene_dir)
     experiment_data_file = os.path.join(exp_dir, "exp_data.pk")
-    # LOAD META DATA
-    meta_f = "meta-%06d.mat" % scene_idx
-    meta = loadmat(os.path.join(scene_dir, "metadata", meta_f))
-    objects_in_scene = [obj.strip() for obj in meta["object_names"]]
-    object_order = meta[order_to_grasp][0].split(",")
-    # LOAD SEGMENTATION DATA
-    segdir = os.path.join(scene_dir, "segmasks", f"scene_{scene_idx}")
-
     experiment_data_file = os.path.join(exp_dir, "exp_data.pk")
     experiment_data = {}
     experiment_data["metadata"] = {
-        "scene_id": args.scene_idx,
         "grasp_method": grasp_method,
         "seg_method": seg_method,
-        "ordering": order_to_grasp,
         "table_height": table_height,
     }
 
@@ -721,6 +665,7 @@ if __name__ == "__main__":
 
     # Initialize planner
     print('Initialize planner')
+    standoff_offset = -10
     planner = GTOPlanner(gto_robot, cfg['link_ee'], cfg['link_gripper'])
     ik_solver = IKSolver(gto_robot, cfg['link_ee'], cfg['link_gripper'], collision_avoidance=False)
     
@@ -737,10 +682,6 @@ if __name__ == "__main__":
     joint_listener = JointListener()
     gripper = Gripper(group_grp)
     gripper.open()
-    # reset_arm_stow(group, "right")
-    print(f"\nObjects in Scene {scene_idx}: {objects_in_scene}")
-    print(f"Object Grasping Order: {object_order}")
-    print("\n----------------------------------------------------------------------------\n")
 
     # -------------------- Main Segmentation Loop ---------------------------- #
     try:           
@@ -749,38 +690,6 @@ if __name__ == "__main__":
         bbox_prev = None
 
         while True:
-            # Ensure to clear the object from scene before proceeding next run!
-            object_to_grasp = object_order[step]
-            gt_segfile = os.path.join(segdir, f"gtseg_ord-{order_to_grasp}_step-{step}.png")
-            gt_rgbfile = os.path.join(segdir, f"render_ord-{order_to_grasp}_step-{step}.png")
-            
-            print("\n--------------------------------------------------")
-            print(f"GRASPING for object: {object_to_grasp} according to {order_to_grasp} order")
-            print(f"GRASP ORDER: {object_order}")
-            logger.inform("\n--------------------------------------------------")
-            logger.inform(f"Proceeding to Step:{step} run")
-            logger.inform(f"GRASPING for object: {object_to_grasp} according to {order_to_grasp} order")
-            rospy.loginfo(f"Proceed to #{step} run")
-            # Read the G.T segmentation file
-            gt_seg_image = imageio.imread(gt_segfile)
-            current_objs_in_scene = object_order[step:]
-            cls_indexes = [CLASSESS_ALL.index(obj) for obj in current_objs_in_scene]
-            cls_colors = [CLASS_COLORS_ALL[i] for i in cls_indexes]
-            print(cls_indexes)
-            gt_label_img = process_label_image(gt_seg_image, cls_colors, cls_indexes)
-
-            __gt_lab_vals = np.unique(gt_label_img)
-            __gt_objs_in_scene = {CLASSESS_ALL[i] for i in __gt_lab_vals if i != 101}
-            print(f"Objects in scene according to gt segmask: {__gt_objs_in_scene}")
-            if user_confirm:
-                fig = plt.figure()
-                ax = fig.add_subplot(1, 2, 1)
-                plt.imshow(gt_seg_image)
-                ax.set_title('gt segmentation')
-                ax = fig.add_subplot(1, 2, 2)
-                plt.imshow(gt_label_img)
-                ax.set_title('gt label')
-                plt.show()
 
             rospy.loginfo("Removing moveit objects from previous iteration")
             for name in scene.get_known_object_names():
@@ -791,8 +700,8 @@ if __name__ == "__main__":
             # -----------------------------------------------------------------#
             # Get object segementations and bbox info
 
-            # _go_to_next = False
             while True:
+                im = listener.im
                 label = listener.label
                 xyz_image = listener.xyz_image
                 camera_pose = listener.camera_pose
@@ -813,62 +722,30 @@ if __name__ == "__main__":
                 print(f"{bbox.shape[0]} objects segmented")
                 listener.save_data(step)
                 break
-          
-            # -----------------------------------------------------------------#
-            ## Associate the GT Seg and Pred Seg Label images and choose which
-            ## segment to proceed for grasping
-            seg_assignment, labels_pred, labels_gt, F = compute_segments_assignment(label, gt_label_img)
-            target_maskid_gt = CLASSESS_ALL.index(object_to_grasp)
-            print(f"Target maskid_gt: {target_maskid_gt} | LABELS_GT: {labels_gt}")
-            print(f"Pred Label ids: {labels_pred}")
-            assert target_maskid_gt in labels_gt
-            
-            target_maskid_label = None
-            print(f"Assignmnet: {seg_assignment}")
-            for seg_a in seg_assignment:
-                idx_in_gt, idx_in_pred = seg_a # changed order of tuple
-                F_score = F[idx_in_gt, idx_in_pred]
-                if idx_in_pred < labels_pred.shape[0] and idx_in_gt < labels_gt.shape[0]:
-                    pr_maskid = labels_pred[idx_in_pred]
-                    gt_maskid = labels_gt[idx_in_gt]
-                    if gt_maskid == target_maskid_gt and F_score > 0:
-                        target_maskid_label = pr_maskid
-                        break
-            print(f"*******object order: {object_order} ************")
-            print(f"Step: {step} | grasp object: {object_to_grasp} | maskid_label_GT: {target_maskid_gt} | maskid_label_Pred: {target_maskid_label}\n")
+
+            # use the first object as target
+            bbox_grasp = bbox[0]
+            target_maskid_label = bbox[0, -1]
+            print(f"Step: {step} | maskid_label_Pred: {target_maskid_label}\n")
             print(f"************************************************")
-            logger.inform(f"Step: {step} | grasp object: {object_to_grasp} | maskid_label_GT: {target_maskid_gt} | maskid_label_Pred: {target_maskid_label}")
-            if target_maskid_label is None:
-                print(f"REMOVE OBJECT: {object_to_grasp}")
-                logger.warning(f"Step: {step} | grasp object: {object_to_grasp}: COULD NOT SEG MASK FOR IT!!! Going to next object!")
-                step += 1
-                continue
             
             # VIZ
             if user_confirm:
-                _target_mask = (label == target_maskid_label) 
-                _rgb_img_gt = imageio.imread(gt_rgbfile)
-                _rgb_img_gt[_target_mask] = 0
+                _target_mask = (label == target_maskid_label)  
                 fig = plt.figure()
-                plt.imshow(_rgb_img_gt)
+                ax = fig.add_subplot(1, 2, 1)
+                plt.imshow(im)
+                ax.set_title('image')
+                ax = fig.add_subplot(1, 2, 2)
+                plt.imshow(_target_mask)
+                ax.set_title('target')
                 plt.show()
-            ## Find corresponding bbox for it
-            bbox_grasp = None
-            for bb in bbox:
-                if bb[-1] == target_maskid_label:
-                    bbox_grasp = bb
-                    break
-            
-            if bbox_grasp is None:
-                bbox_prev = bbox
-                rospy.sleep(1.0)
-                continue
             
             # ------------------------ GRASP PLANNING --------------------------#
             mask_id = bbox_grasp[-1]
             
             pc_scene_cam = get_scene_pc(xyz_image) # scene's pc (N, 3) in camera frame!
-            np.save("/home/ninad/depth_pc_cam.npy", pc_scene_cam)
+            np.save("/home/yuxiang/depth_pc_cam.npy", pc_scene_cam)
             rospy.sleep(3)
             obj_pts_base = get_target_pts(camera_pose, mask_id, label, xyz_image)
             obj_pts_cam = get_target_pts(camera_pose, mask_id, label, xyz_image, frame="camera")
@@ -892,7 +769,7 @@ if __name__ == "__main__":
                 break
             if len(RT_grasps) == 0:
                 print("No Grasp Poses returend from Grasp Sampling algorithm")
-                logger.error(f"Step: {step} | Object: {object_to_grasp} : No Grasp Poses returend from Grasp Sampling algorithm")
+                logger.error(f"Step: {step} | No Grasp Poses returend from Grasp Sampling algorithm")
 
             RT_gripper = get_gripper_rt(tf_buffer)
             RT_grasps_base, grasp_index, pruned_ratio = model_free_sort_and_filter_grasps(
@@ -952,7 +829,7 @@ if __name__ == "__main__":
             direct_topdown = False
             RT_grasp = None # Set the final grasp here
             if grasp_index is None:
-                logger.error(f"Step: {step} | Object: {object_to_grasp} : No Grasps from Planning...Going into Top Down")
+                logger.error(f"Step: {step} | No Grasps from Planning...Going into Top Down")
                 direct_topdown = True
             else:
                 # Motion planning for sampled grasps!
@@ -1050,103 +927,74 @@ if __name__ == "__main__":
                             # trajectory = convert_plan_to_trajectory(gto_robot.optimized_joint_names, plan_ros, dQ, planner.dt)
                             trajectory = convert_plan_to_trajectory_toppra(gto_robot, gto_robot.optimized_joint_names, plan_ros)
                         
-                        # visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
+                        visualize_plan(gto_robot, gripper_model, base_position, plan, depth_pc, depth_pc_obstacle, RT_grasps_base)
 
                 gripper_width = 0.05 # Set a dummy value for 6Dof grasp
             
-            if direct_topdown or not trajectory:
-                # Top Down Grasping
-                # Compute an top down RT_grasp and use grasp_with_rt()
-                # Also see certain parts of the segmentation based top-down pipeline
-                logger.inform(f"Step: {step} | Performing TOP-DOWN Grasping")
-                RT_grasp, gripper_width = model_free_top_down_grasp(
-                                            camera_pose, mask_id, label, xyz_image)
-                if gripper_width > (0.1 - 0.005):
-                    logger.warning(
-                        f"Step: {step} | Large Gripper Width! Grasp Center will be adjusted"
-                    )
-
-                logger.inform(f"Step: {step} | Grasp motion plan computed sucessfully")
-                assert(RT_grasp is not None)
-                object_name = None
-                input("execute grasping?")
-
-                success = grasp(
-                    robot,
-                    gripper,
+            if trajectory:
+                execute_trajectory(
                     group,
-                    arm_action,
-                    scene,
-                    bbox,
-                    scene_boxes,
-                    RT_grasp,
-                    gripper_width,
-                    object_name,
                     display_trajectory_publisher,
-                    user_confirm,
-                    slow_execution=False,
+                    trajectory,
                 )
-                rospy.sleep(1)
-                if not success:
-                    # graspable[bbox_id] = 0
-                    bbox_prev = bbox
-                    logger.error(f"Step: {step} | FAILED Grasping Stage!")
-                    print("Please Remove the Object from Scene")
-                else:
-                    bbox_prev = bbox
-                    logger.inform(f"Step: {step} | SUCCESS Grasp Stage!")
 
-            elif trajectory:
-                grasp_with_trajectory(
-                    gripper,
+                # close gripper
+                print("close gripper")
+                gripper.close()
+                rospy.sleep(3)
+
+                # get current joint
+                joint_name = joint_listener.joint_name
+                joint_position = joint_listener.joint_position
+                q0 = np.zeros((gto_robot.ndof, 1))
+                for i in range(gto_robot.ndof):
+                    name = gto_robot.actuated_joint_names[i]
+                    if name in joint_name:
+                        q0[i] = joint_position[joint_name.index(name)]
+                # set gripper joint close
+                q0[cfg['finger_index'], 0] = 0
+
+                # move to standoff
+                plan_standoff = plan[:, np.arange(standoff_offset - 10, -1)]
+                plan_reverse = plan_standoff[:, ::-1]
+                plan_reverse[cfg['finger_index'], :] = 0
+                plan_all = np.hstack((q0, plan_reverse))
+                plan_ros = plan_all[gto_robot.optimized_joint_indexes, :]
+                trajectory = convert_plan_to_trajectory_toppra(gto_robot, gto_robot.optimized_joint_names, plan_ros)
+
+                execute_trajectory(
                     group,
-                    scene,
-                    object_to_grasp,
                     display_trajectory_publisher,
                     trajectory,
                 )
 
             ####### remove planning scene objects for lifting
-            scene.remove_world_object()                
-
+            scene.remove_world_object()
             rospy.sleep(1) # add a delay before querying for gripper open/close status
-            # ------------------------ LIFTING OBJECT --------------------------#
-            if gripper.is_fully_closed() or gripper.is_fully_open() or (not success):
-                print("Gripper fully open/closed (after Grasping)....Not Lifting!")
+        
+            # ----------------------- MOVING OBJECT ------------------------#
+            if gripper.is_fully_closed() or gripper.is_fully_open():
+                print("Gripper fully open/closed (after Lifting)....Not Moving!")
                 logger.failure_gripper(
-                    f"Step: {step} | Gripper fully open/closed after [Grasping] ... Not [Lifting] !"
+                    f"Step: {step} | Gripper fully open/closed after [Lifting] ... Not [Moving] !"
                 )
             else:
-                print("lifting object after grasping")
+                print("Trying to move object")
                 RT_gripper = get_gripper_rt(tf_buffer)
-                # lift_arm_joint(group, user_confirm)
                 try:
-                    lift_arm_cartesian(group, RT_gripper)
+                    rotate_gripper(group, RT_gripper)
                 except:
                     pass
-                # ----------------------- MOVING OBJECT ------------------------#
+                RT_gripper = get_gripper_rt(tf_buffer)
+                try:
+                    move_arm_to_dropoff(group, RT_gripper, x_final=0.78)
+                except:
+                    pass
                 if gripper.is_fully_closed() or gripper.is_fully_open():
-                    print("Gripper fully open/closed (after Lifting)....Not Moving!")
-                    logger.failure_gripper(
-                        f"Step: {step} | Gripper fully open/closed after [Lifting] ... Not [Moving] !"
+                    print("Gripper fully open/closed (after Moving)....")
+                    logger.failure_dropoff(
+                        f"Step: {step} | Gripper fully open/closed after [Moving] ... "
                     )
-                else:
-                    print("Trying to move object")
-                    RT_gripper = get_gripper_rt(tf_buffer)
-                    try:
-                        rotate_gripper(group, RT_gripper)
-                    except:
-                        pass
-                    RT_gripper = get_gripper_rt(tf_buffer)
-                    try:
-                        move_arm_to_dropoff(group, RT_gripper, x_final=0.78)
-                    except:
-                        pass
-                    if gripper.is_fully_closed() or gripper.is_fully_open():
-                        print("Gripper fully open/closed (after Moving)....")
-                        logger.failure_dropoff(
-                            f"Step: {step} | Gripper fully open/closed after [Moving] ... "
-                        )
             rospy.sleep(1)
 
             # ------------------------ OPEN GRIPPER & STOW ---------------------#
