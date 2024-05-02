@@ -717,7 +717,7 @@ if __name__ == "__main__":
             # -----------------------------------------------------------------#
             ## Associate the GT Seg and Pred Seg Label images and choose which
             ## segment to proceed for grasping
-            seg_assignment, labels_pred, labels_gt = compute_segments_assignment(label, gt_label_img)
+            seg_assignment, labels_pred, labels_gt, _ = compute_segments_assignment(label, gt_label_img)
             target_maskid_gt = CLASSESS_ALL.index(object_to_grasp)
             print(f"Target maskid_gt: {target_maskid_gt} | LABELS_GT: {labels_gt}")
             print(f"Pred Label ids: {labels_pred}")
