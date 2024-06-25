@@ -3,7 +3,7 @@ import numpy as np
 from scipy.io import savemat
 import rospy
 
-sys.path.append("../utils/")
+sys.path.append("./utils/")
 from utils_control import FollowTrajectoryClient, PointHeadClient
 
 
