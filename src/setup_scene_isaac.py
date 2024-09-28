@@ -3,6 +3,7 @@ import argparse
 import sys
 from scipy.io import loadmat
 import numpy as np
+import pickle
 
 # isaac
 import carb
@@ -28,8 +29,11 @@ from omni.isaac.core.utils import extensions, stage, viewports
 from omni.isaac.core.prims.rigid_prim import RigidPrimView
 
 # SceneReplica
-sys.path.append("./utils/")
-from utils.utils_scene import load_scene
+def load_scene(scene_dir, scene_id):
+    scene_f = os.path.join(scene_dir, f"scene_id_{scene_id}.pk")
+    with open(scene_f, "rb") as f:
+        data = pickle.load(f)
+    return data
 
 
 def make_args():
