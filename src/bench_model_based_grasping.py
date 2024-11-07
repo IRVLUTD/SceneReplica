@@ -36,7 +36,7 @@ from grasp_utils import (
 from utils_control import FollowTrajectoryClient, PointHeadClient
 from utils_scene import load_scene, read_pickle_file, write_pickle_file
 from image_listener import ImageListener
-
+from moveit_msgs.msg import Constraints
 from utils_log import get_custom_logger
 
 
@@ -145,13 +145,23 @@ def plan_grasp(
             for i in range(1, standoff_grasp_global.shape[0]):
                 wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
                 waypoints.append(copy.deepcopy(wpose))
-            (plan_final, fraction) = group.compute_cartesian_path(
-                waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
-            )  # jump_threshold
+            print("qwerty")
+            # print("sssss", group.cartesian_path())
+            print("qwerty2")
+
+
+            (plan_standoff, fraction) = group.compute_cartesian_path(
+                                waypoints,   # waypoints to follow
+                                0.01,        # eef_step
+                                True     # True to avoid collisions
+                                )
+            # (plan_final, fraction) = group.compute_cartesian_path(
+            #     waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+            # )  # jump_threshold
             print(f"Gidx {grasp_idx} fraction: {fraction}")
             if fraction >= 0.9:
                 print("Found FULL PLAN!")
-                return RT_grasp, grasp_idx, trajectory, plan_final
+                return RT_grasp, grasp_idx, trajectory, plan_standoff
             else:
                 obj_mesh_path = os.path.join(
                     models_path, obj_name, "textured_simple.obj"
@@ -225,8 +235,9 @@ def grasp_with_rt(
         wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
         waypoints.append(copy.deepcopy(wpose))
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        waypoints, 0.01, True  # waypoints to follow  # eef_step
     )  # jump_threshold
+    
     print(f"{object_name}: FRACTION: {fraction}")
     trajectory = plan_standoff
 

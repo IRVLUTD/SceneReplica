@@ -161,7 +161,7 @@ def plan_grasp(robot,
                 wpose = rt_to_ros_pose(wpose, standoff_grasp_global[ixx])
                 waypoints.append(copy.deepcopy(wpose))
             (plan_final, fraction) = group.compute_cartesian_path(
-                waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+                waypoints, 0.01, True  # waypoints to follow  # eef_step
             )  # jump_threshold
             print(f"Iteration: {_ixx} | Gidx {i} fraction: {fraction}")
             if fraction >= 0.9:
@@ -276,7 +276,7 @@ def grasp(
         wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
         waypoints.append(copy.deepcopy(wpose))
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        waypoints, 0.01, True  # waypoints to follow  # eef_step
     )  # jump_threshold
     print(f"Fraction of waypoints success: {fraction}")
     if fraction < 0.9:

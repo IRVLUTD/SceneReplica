@@ -79,7 +79,7 @@ def move_arm_to_dropoff(group, RT_gripper, x_final=0.45, y_final=0.4):
     # waypoints.append(copy.deepcopy(wpose))
 
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        waypoints, 0.01, True  # waypoints to follow  # eef_step
     )  # jump_threshold
     print(f"Fraction for final dropoff movement: {fraction}")
     group.execute(plan_standoff, wait=True)
@@ -150,8 +150,8 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25):
         waypoints.append(copy.deepcopy(wpose))
     
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
-    )  # jump_threshold
+        waypoints, 0.01, True # waypoints to follow  # eef_step
+    )  # avoid_collision instead of jump_threshold
     print(f"Fraction for lifitng movement: {fraction}")
     group.execute(plan_standoff, wait=True)
     group.stop()
