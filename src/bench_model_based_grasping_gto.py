@@ -303,15 +303,23 @@ def grasp_with_trajectory(
     """
 
     # visualize plan
+    input("execute?")
     display_trajectory = moveit_msgs.msg.DisplayTrajectory()
     display_trajectory.trajectory_start = robot.get_current_state()
     robot_trajectory = moveit_msgs.msg.RobotTrajectory()
+    
+    # Assign the trajectory start time stamp right before executing.
+    #  Else, the control signal would overshoot because of large difference 
+    #   between expected joint angle and the current joint angle 
+    
+    trajectory.header.stamp = rospy.Time.now()
+    
     robot_trajectory.joint_trajectory = trajectory
     display_trajectory.trajectory.append(robot_trajectory)
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
 
-    input("execute?")
+
     # for point in trajectory.points:
     #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
     # arm_action.follow_traj(trajectory)
