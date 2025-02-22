@@ -1,3 +1,32 @@
+### Rospackage Notes (Temporal)
+
+- The repo is now restructured as a ros package named scene_setup.
+- Facilitates usage of previous scripts (Focused around Model based benchmarking)
+- Differences: 
+  - To use the rviz image layover for the scenes you can run the rviz.launch with:
+   ```Shell
+   roslaunch scene_setup rviz.launch index:=68
+   ``` 
+   - Gazebo can now load any robot urdf the user would like with (we have 'fetch' for regular fingers and "fetch_UMI" for UMI fingers):
+   ```Shell
+   roslaunch scene_setup just_robot.launch robot:=fetch
+   ``` 
+   - scene setup remains the same but can be called with the package:
+   ```Shell
+   rosrun scene_setup setup_scene_sim.py
+   ``` 
+   - Likewise the Moveit move_group can be launched for different .urdfs. Same as in Gazebo there is "fetch" for regular fingers and "fetch_UMI" for UMI fingers with fetch as default
+   ```Shell
+   roslaunch scene_setup moveit.launch robot:=fetch
+   ``` 
+   - Lastly the model based benchmarking can be launched with:
+   ```Shell
+   roslaunch scene_setup model_based_grasping.launch pose_method:=gazebo obj_order:=nearest_first scene_idx:=68
+   ``` 
+   This will launch an rviz window with the planning scene and the bench_model_based_grasping.py script.
+
+This branch assumes you have the fetch_ros_IRVL packages in your workspace instead of the fetch_ros.
+
 # SceneReplica
 Code release for SceneReplica paper: [ArXiv](https://arxiv.org/abs/2306.15620) | [Webpage](https://irvlutd.github.io/SceneReplica/)
 
