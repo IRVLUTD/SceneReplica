@@ -1,14 +1,20 @@
+#!/usr/bin/env python
+
 import os
 import argparse
 import sys
 from scipy.io import loadmat
 import rospy
+import rospkg
 
-sys.path.append("./utils/")
+st_path = rospkg.RosPack().get_path("scene_setup")
+sys.path.append(os.path.join(st_path,"scripts/utils/"))
+
 from utils.utils_scene import ObjectService, load_scene
-from utils_control import PointHeadClient, FollowTrajectoryClient
-from ros_utils import convert_standard_to_rosqt
+from utils.utils_control import PointHeadClient, FollowTrajectoryClient
+from utils.ros_utils import convert_standard_to_rosqt
 
+st_path = rospkg.RosPack().get_path("scene_setup")
 
 def make_args():
     parser = argparse.ArgumentParser(
@@ -18,7 +24,7 @@ def make_args():
         "-d",
         "--data_dir",
         type=str,
-        default="/home/benchmark/Datasets/benchmarking/",
+        default=os.path.join(st_path,"datasets/benchmarking/"),
         help="Path to data dir",
     )
     parser.add_argument(

@@ -5,11 +5,13 @@ import scipy.io
 import rospy
 import numpy as np
 import tf
+import rospkg
 
 from visualization_msgs.msg import Marker
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 
+st_path = rospkg.RosPack().get_path("scene_setup")
 
 class ImageListener:
     def __init__(self):
@@ -48,6 +50,7 @@ class ImageListener:
         rgb_sub = rospy.Subscriber(
             "/head_camera/rgb/image_raw", Image, self.callback, queue_size=2
         )
+        print("Publishing Reference Image at /image_overlay")
 
     def setup_reference(self, data):
         self.data_reference = data
@@ -69,7 +72,7 @@ class ImageListener:
             pose_msg.header.frame_id = rgb.header.frame_id
             pose_msg.encoding = "bgr8"
             self.pose_image_pub.publish(pose_msg)
-            print("publish reference image at /image_overlay")
+            #print("publish reference image at /image_overlay")
 
             # publish object markers
             object_names = self.data_reference["object_names"]
@@ -110,9 +113,9 @@ class ImageListener:
                 marker.pose.orientation.z = pose[6]
 
                 marker.mesh_resource = os.path.join(
-                    "package://fetch_gazebo/models/", object_name, "textured_simple.obj"
+                    st_path,"datasets/benchmarking/models", object_name, "textured_simple.obj"
                 )
-                print(marker.mesh_resource)
+                #print(marker.mesh_resource)
                 marker.mesh_use_embedded_materials = True
                 index = self.object_names.index(object_name)
                 self.marker_pubs[index].publish(marker)
@@ -149,7 +152,6 @@ def read_data(dirname, index):
 
 import argparse
 
-
 def make_args():
     parser = argparse.ArgumentParser(description="Test scene setup", add_help=True)
     parser.add_argument("-i", "--index", type=int, default=0)
@@ -157,16 +159,20 @@ def make_args():
         "-d",
         "--datadir",
         type=str,
-        default="/home/benchmark/Projects/posecnn-pytorch/data/Fetch/",
+        default=os.path.join(st_path,"datasets/benchmarking/final_scenes/metadata"),
     )
     args = parser.parse_args()
     return args
 
 
 if __name__ == "__main__":
-    """
-    Main function to run the code
-    """
+    # Filter Ros Args
+    ros_args = [arg for arg in sys.argv if arg.startswith('__')]
+    clean_argv = [arg for arg in sys.argv if not arg.startswith('__')]
+
+    # Temporarily replace sys.argv to exclude ROS arguments
+    sys.argv = clean_argv
+
     args = make_args()
     rospy.init_node("setup_scene")
     dirname = args.datadir

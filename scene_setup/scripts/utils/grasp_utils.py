@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 from scipy.spatial import KDTree
 
 import rospy
-from ros_utils import ros_qt_to_rt
+from ros_utils import ros_qt_to_rt, isaac_pose_to_rt
 from tf.transformations import euler_matrix
 
 
@@ -35,7 +35,7 @@ def rotate_gripper(group, RT_gripper):
     rospy.sleep(1)
 
 
-def move_arm_to_dropoff(group, RT_gripper, x_final=0.45, y_final=0.4):
+def move_arm_to_dropoff(group, RT_gripper, table_height, x_final=0.45, y_final=0.4, n_wps = 10):
     """
     Move arm to a final dropoff location
     Use the x_final and y_final values to plan a cartesian path
@@ -63,7 +63,10 @@ def move_arm_to_dropoff(group, RT_gripper, x_final=0.45, y_final=0.4):
 
     gripper_posn = RT_gripper[:3, 3]
     x_start = gripper_posn[0]
-    wps = np.linspace(x_start, x_final, 10, endpoint=True)
+    wps = np.linspace(x_start, x_final, n_wps, endpoint=True)
+
+    # Set minimum height to move torwards drop off
+    #gripper_posn[2] = max(table_height+0.15, gripper_posn[2])#! Missing test
 
     # first_posn = [gripper_posn[0], y_final, gripper_posn[2]]
     # For movement in Z for object dropoff
@@ -79,17 +82,21 @@ def move_arm_to_dropoff(group, RT_gripper, x_final=0.45, y_final=0.4):
     # waypoints.append(copy.deepcopy(wpose))
 
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, True  # waypoints to follow  # eef_step
+        waypoints, 0.01, True  # waypoints to follow  # eef_step #! Stern movements
     )  # jump_threshold
+    # Moves to front
     print(f"Fraction for final dropoff movement: {fraction}")
     group.execute(plan_standoff, wait=True)
     group.stop()
     group.clear_pose_targets()
 
+    #! Implement force_torque protection here
+
     # group.stop()
+    # Sets shoulder pan to +/- 60 degrees
     joint_goal = group.get_current_joint_values()
     RAD_60 = np.radians(60)
-    joint_goal[0] = RAD_60 if  joint_goal[0] >= 0 else -RAD_60
+    joint_goal[0] = RAD_60 if  joint_goal[0] >= 0 else -RAD_60 
     group.go(joint_goal, wait=True)
     group.stop()
     rospy.sleep(0.5)
@@ -128,7 +135,7 @@ def lift_arm_joint(group, confirm=True):
     return
 
 
-def lift_arm_cartesian(group, RT_gripper, z_offset=0.25):
+def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions= True, n_wps = 10):
     def set_pose_posn(wpose, pos):
         wpose.position.x = pos[0]
         wpose.position.y = pos[1]
@@ -138,7 +145,7 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25):
     gpos = RT_gripper[:3, 3]
     z_start = gpos[2]
     z_final = gpos[2] + z_offset
-    wps = np.linspace(z_start, z_final, 10, endpoint=True)
+    wps = np.linspace(z_start, z_final, n_wps, endpoint=True) #! divide space in 10 (no need for 10)
     # first_posn = [gpos[0], gpos[1], gpos[2] + 0.13]
     # For movement in Z for object dropoff
     # final_posn = [gpos[0], gpos[1], gpos[2] + 0.25]
@@ -149,11 +156,11 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25):
         set_pose_posn(wpose, curr_pos)
         waypoints.append(copy.deepcopy(wpose))
     
-    (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, True # waypoints to follow  # eef_step
+    (plan_standoff, fraction) = group.compute_cartesian_path( 
+        waypoints= waypoints, eef_step = 0.01, avoid_collisions = avoid_collisions# waypoints to follow  # eef_step
     )  # avoid_collision instead of jump_threshold
     print(f"Fraction for lifitng movement: {fraction}")
-    group.execute(plan_standoff, wait=True)
+    group.execute(plan_standoff, wait=True) #! May not compute trajectory
     group.stop()
     group.clear_pose_targets()
     rospy.sleep(2)  #
@@ -185,7 +192,7 @@ def lift_arm_pose(group, confirm=True):
     group.clear_pose_targets()
 
 
-def get_standoff_wp_poses(standoff_dist=0.1, tail_len=10, extra_off=0.01):
+def get_standoff_wp_poses(standoff_dist=0.1, tail_len=11, extra_off=0.01): 
     """
     For any 6Dof Grasp pose (as 4x4 tf), compute the standoffpose and waypoints along
     the direction from standoff to final pose.
@@ -199,13 +206,14 @@ def get_standoff_wp_poses(standoff_dist=0.1, tail_len=10, extra_off=0.01):
     - pose_standoff (np.ndarray) : (tail_len+1, 4, 4) numpy array containing tfs for all waypoints in
                                     gripper frame. So just premultiply with RT_gripper to get in global frame.
     """
-    offset = -standoff_dist * np.linspace(0, 1, tail_len, endpoint=False)[::-1]
-    offset = np.append(offset, [extra_off])
-    tail_len += 1
+    offset = -standoff_dist * np.linspace(0, 1, tail_len, endpoint=False)[::-1] 
+    #offset = np.append(offset, [extra_off])
+    #tail_len += 1 #! It adds unpredictability to grasps
+    # This could lead to collisions with the table and  
+    # It could also makes it squash objects in top down grasps
     pose_standoff = np.tile(np.eye(4), (tail_len, 1, 1))
     pose_standoff[:, 0, 3] = offset
     return pose_standoff
-
 
 ################ Model Free and Point Cloud Utils #####################
 
@@ -235,7 +243,7 @@ def get_object_verts(model_path: str, pose):
     return mesh.vertices
 
 
-def model_based_top_down_grasp(points_base):
+def model_based_top_down_grasp(points_base, finger_length=0.062):
     """
     Gives a top down grasp for an object, assumes a parallel jaw gripper
     Input:
@@ -244,10 +252,11 @@ def model_based_top_down_grasp(points_base):
         RT_grasp: 4x4 tf giving the transform for the grasp
         gripper_width: width for the parallel jaw gripper
     """
-    gripper_finger_length = 0.062
-    gripper_tip_to_base_offset = 0.216  # length from finger tip to gripper base
+    gripper_finger_length = finger_length 
     margin_height = 0.005  # margin of error in estimating object's height
     margin_width = 0.0015
+
+    #! Will collide if new fingers used
 
     xy = points_base[:, :2]
     center = np.mean(xy, axis=0).reshape((1, 2))
@@ -279,6 +288,7 @@ def model_based_top_down_grasp(points_base):
     # use the 2nd component to define the grasping angle
     component = pca.components_[1, :]
     theta = math.atan2(component[0], component[1])
+
     # construct the RT matrix
     RT = euler_matrix(0, np.pi / 2, 0) @ euler_matrix(theta, 0, 0)
     RT[0, 3] = grasp_center[0]
@@ -300,10 +310,9 @@ def model_based_top_down_grasp(points_base):
         # Case1: H/2 > L           ---> ztip = z_c + (H/2 - L) {go a bit more up than center}
         # Case2: H/2 < L but H > L ---> ztip = z_c - (L - H/2) {go a bit more down than center} == z_c + (H/2 - L)
         z_tip = z_c + (height/2 - gripper_finger_length)
-    z_tip = max(z_tip, 0.745) # table height check
+    z_tip = max(z_tip, 0.745) # table height check #! Doesn't adapt to table height change
     print("Z_TIP:", z_tip)
-    z_gripper_base = z_tip + gripper_tip_to_base_offset
-    RT[2, 3] = z_gripper_base
+    RT[2, 3] = z_tip
     return RT, gripper_width
 
 
@@ -502,7 +511,7 @@ def compute_oriented_bbox(points_base):
 
 def user_confirmation(message):
     print(message)
-    val = input("Proceed? Y/N: ")
+    val = input("Proceed? Input N/n to abort: ")
     if val == "N" or val == "n":
         return False
     else:
@@ -572,12 +581,29 @@ def parse_grasps(filename):
     n = len(grasps)
     poses_grasp = np.zeros((n, 4, 4), dtype=np.float32)
     for i in range(n):
-        pose = grasps[i]["pose"]
+        pose = grasps[i]
         rot = pose[3:]
         trans = pose[:3]
         RT = ros_qt_to_rt(rot, trans)
         poses_grasp[i, :, :] = RT
     return poses_grasp
+
+def parse_grasps_isaac(filename):
+    with open(filename, "r") as f:
+        data = json.load(f)
+    grasps = data["pose"]
+    result_time = data["result_time"]
+    max_time = data["test_duration"]
+
+    n = len(grasps)
+    poses_grasp = np.zeros((n, 4, 4), dtype=np.float32)
+    for i in range(n):
+        pose = grasps[i]
+        rot = pose[3:]
+        trans = pose[:3]
+        RT = isaac_pose_to_rt(rot, trans)
+        poses_grasp[i, :, :] = RT
+    return poses_grasp, result_time, max_time
 
 
 def close_grasps(RT_obj, RT_grasps, close_idxs):
@@ -618,19 +644,20 @@ def sort_grasps(RT_obj, RT_gripper, RT_grasps):
 
 
 def sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, table_height: float):
-    # translate all RT graspits grasps using the object mean
+    # translate all RT graspits grasps using the object mean #! 
     # transform grasps to robot base
     n = RT_grasps.shape[0]
     # RT_grasps_base = np.zeros_like(RT_grasps)
     distances = np.zeros((n,), dtype=np.float32)
     RT_grasps_base = []
-    distances = []
-    for i in range(n):
-        RT_g = RT_grasps[i]
+    distances = [] 
+
+    for i in range(n): #! filter grasps that are from below table
+        RT_g = RT_grasps[i] 
         # transform grasp to robot base
-        RT = RT_obj @ RT_g
+        RT = RT_obj @ RT_g 
         trans = RT[:3, 3]
-        if trans[-1] > (table_height + 0.02):  # 2cm offset above table surface
+        if trans[-1] > (table_height + 0.02):  # 2cm offset above table surface #! Doesn't filter all colliding grasps
             RT_grasps_base.append(RT)
             d = np.linalg.norm(RT_gripper[:3, 3] - RT[:3, 3])
             distances.append(d)
@@ -642,10 +669,130 @@ def sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, table_height: float):
         return None, None, None
     RT_grasps_base = np.asarray(RT_grasps_base)
     distances = np.asarray(distances, dtype=np.float32)
-    index = np.argsort(distances)
+    index = np.argsort(distances) 
     RT_grasps_base = RT_grasps_base[index]
-    return RT_grasps_base, index, pruned_ratio
+    return RT_grasps_base, index, pruned_ratio #! Sorts the grasps by their distance
 
+def isaac_sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, result_time, max_time, table_height: float):
+    """ Function to filter isaac Sim grasps due to collision with table and to sort on a percentile base
+
+    Args:
+        - RT_obj: T matrix of object
+        - RT_gripper: T matrix of gripper frame
+        - RT_grasps: Numpy array (n,4,4) with n = number of grasps. 
+        - result_time: list of length n with evaluation time of each grasp (-1 means complete failure)
+        - max_time: float with Total test duration of each grasp
+        - table_height: height of table used for experiments
+
+    Returns:
+        - RT_grasps_base: filtered grasps
+    
+    """
+    # Convert inputs to numpy arrays if they aren't already
+    RT_grasps = np.asarray(RT_grasps)
+    result_time = np.asarray(result_time)
+    n = RT_grasps.shape[0]
+
+    # Create array of original indices
+    original_indices = np.arange(n)
+
+    # Best filter would be using the wrist flex joint coordinate frame 
+    # Aprox ~ 0.1385+ 0.0523 + 0.14745 + 0.03 (or 0.10 with new fingers) negative displacement from finger tip
+    # wrist roll + ati + gripper + finger tip offsets
+    # Define wrist flex transformation
+    wrist_flex_T = np.eye(4)
+    wrist_flex_T[0,3] = - (0.1385 + 0.0523 + 0.14745 + 0.03)
+
+    # Filter grasps with result_time >= 1
+    valid_mask = result_time >= 1
+    RT_grasps_valid = RT_grasps[valid_mask]
+    result_time_valid = result_time[valid_mask]
+    indices_valid = original_indices[valid_mask]
+
+    # Calculate transformations and z-values
+    RT_world_frame = RT_obj @ RT_grasps_valid
+    RT_transformed = RT_obj @ RT_grasps_valid @ wrist_flex_T
+    z_values = RT_transformed[:, 2, 3]  # Extract z coordinates
+
+    # Filter grasps above table height + 0.075
+    height_mask = z_values > (table_height + 0.075) #! Fetch elbow radius = 7.5 cm
+    RT_height = RT_world_frame[height_mask]
+    result_time_h_filtered = result_time_valid[height_mask]
+    indices_h_filtered = indices_valid[height_mask]
+
+    # Filter grasps with finger tips below table
+    # Left finger
+    T_left = np.eye(4)
+    T_left[1,3] = -0.05 # Max position of finger
+    RT_left_ft = RT_height @ T_left
+    left_z_values = RT_left_ft[:, 2, 3]  # Extract z coordinates
+    # Right Finger
+    T_right = np.eye(4)
+    T_right[1,3] = 0.05 # Max position of finger
+    RT_right_ft = RT_height @ T_right
+    right_z_values = RT_right_ft[:, 2, 3]  # Extract z coordinates
+
+    # Mask both finger tips 
+    ft_mask = (left_z_values > table_height) & (right_z_values > table_height) 
+    RT_grasps_base = RT_height[ft_mask]
+    result_time_filtered = result_time_h_filtered [ft_mask]
+    indices_filtered = indices_h_filtered[ft_mask]
+
+    # Calculate prune ratio
+    final_grasp_len = len(RT_grasps_base)
+    pruned_ratio = (n - final_grasp_len) / n
+    print(f"Filter ratio: {pruned_ratio}")
+    if pruned_ratio == 1.0:
+        print("Returning all None")
+        return None, None, None
+
+    # Calculate distances to gripper
+    distances = np.linalg.norm(RT_gripper[:3, 3] - RT_grasps_base[:, :3, 3], axis=1)
+
+    # Separate max_time grasps
+    max_time_mask = result_time_filtered == max_time
+    RT_grasps_max = RT_grasps_base[max_time_mask]
+    distances_max = distances[max_time_mask]
+    indices_max = indices_filtered[max_time_mask]
+    
+    RT_grasps_rest = RT_grasps_base[~max_time_mask]
+    distances_rest = distances[~max_time_mask]
+    result_time_rest = result_time_filtered[~max_time_mask]
+    indices_rest = indices_filtered[~max_time_mask]
+
+    # Sort max_time grasps by distance
+    max_idx = np.argsort(distances_max)
+    RT_grasps_max = RT_grasps_max[max_idx]
+    indices_max = indices_max[max_idx]
+
+    # Calculate percentiles for remaining grasps
+    percentiles = np.percentile(result_time_rest, [70, 80, 90, 95, 100])
+    
+    # Create masks for each percentile range
+    masks = [
+        (result_time_rest <= percentiles[0]),  # Below 70th
+        (result_time_rest > percentiles[0]) & (result_time_rest <= percentiles[1]),  # 70-80
+        (result_time_rest > percentiles[1]) & (result_time_rest <= percentiles[2]),  # 80-90
+        (result_time_rest > percentiles[2]) & (result_time_rest <= percentiles[3]),  # 90-95
+        (result_time_rest > percentiles[3])  # 95-100
+    ]
+
+    # Sort each percentile range by distance and track indices
+    sorted_grasps = []
+    sorted_indices = []
+    for mask in masks[::-1]:  # Reverse to go from high to low percentile
+        grasps_chunk = RT_grasps_rest[mask]
+        dist_chunk = distances_rest[mask]
+        idx_chunk = indices_rest[mask]
+        chunk_sort_idx = np.argsort(dist_chunk)
+        sorted_grasps.append(grasps_chunk[chunk_sort_idx])
+        sorted_indices.append(idx_chunk[chunk_sort_idx])
+
+    # Concatenate all sorted arrays
+    RT_sorted = np.concatenate([RT_grasps_max] + sorted_grasps)
+    index = np.concatenate([indices_max] + sorted_indices)
+
+    return RT_sorted, index, pruned_ratio
 
 def model_free_sort_and_filter_grasps(RT_grasps, table_height: float, RT_cam=None):
     """

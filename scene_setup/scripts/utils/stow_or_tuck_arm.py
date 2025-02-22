@@ -20,7 +20,7 @@ def reset_arm_tuck(group):
     :param group: the moveit group of joints
     :return:
     """
-    pose = [1.32, 1.40, -0.2, 1.72, 0.0, 1.66, 0.1]
+    pose = [1.32, 1.40, -0.2, 1.72, 0.0, 1.66, 0.1] #! Best initial position? 
     group.set_joint_value_target(pose)
     plan = group.plan()
     if not plan[0]:

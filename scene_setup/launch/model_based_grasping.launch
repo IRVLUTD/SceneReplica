@@ -1,0 +1,27 @@
+<launch>
+  <!-- Define arguments for flexibility -->
+  <arg name="pose_method" doc="Object pose estimation method: gazebo, poserbpf, posecnn, isaac" />
+  <arg name="obj_order" doc="Order to grasp objects: nearest_first, random" />
+  <arg name="scene_idx" doc="ID for the scene under evaluation" />
+  <arg name="data_dir" default="$(find scene_setup)/datasets/benchmarking/" doc="Path to dataset directory" />
+  <arg name="scene_dir" default="final_scenes" doc="Path to scene data directory" />
+  <arg name="sgrasp_file" default="sgrasps.pk" doc="Path to successful grasp pickle file" />
+  <arg name="table_height" default="0.74" doc="Table height for point cloud filtering" />
+  <arg name="rviz_config" default="$(find scene_setup)/config/scene_performance.rviz" doc="RViz configuration file" />
+
+  <!-- Launch RViz with output silenced -->
+  <node name="rviz" pkg="rviz" type="rviz" output="log" 
+        launch-prefix="bash -c &quot;$0 $@ &gt; /dev/null 2&gt;&amp;1&quot;" 
+        args="-d $(arg rviz_config)" />
+
+
+  <!-- Launch Fetch netft (force-torque sensor) -->
+  <!-- Equivalent to roslaunch fetch_netft netft.launch ! Check if it works remotely, may not be the case -->
+  <!--node name="netft" pkg="fetch_netft" type="sensor.py" output="screen">
+  </node-->
+
+  <!-- Launch bench_model_based_grasping.py with specified arguments -->
+  <node name="bench_model_based_grasping" pkg="scene_setup" type="bench_model_based_grasping.py" output="screen"
+      args = "--scene_idx $(arg scene_idx) --pose_method $(arg pose_method) --obj_order $(arg obj_order) --data_dir $(arg data_dir) --scene_dir $(arg scene_dir) -sg $(arg sgrasp_file) --table_height $(arg table_height)"/>
+
+</launch>

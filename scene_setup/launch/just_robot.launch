@@ -1,6 +1,6 @@
 <launch>
 
-  <env name="GAZEBO_MODEL_PATH" value="$(find fetch_gazebo)/models:$(optenv GAZEBO_MODEL_PATH)" />
+  <env name="GAZEBO_MODEL_PATH" value="$(find scene_setup)/datasets/benchmarking/models:$(optenv GAZEBO_MODEL_PATH)" />
 
   <arg name="robot" default="fetch"/>
   <arg name="debug" default="false"/>
@@ -18,6 +18,6 @@
   </include>
 
   <!-- Oh, you wanted a robot? -->
-  <include file="$(find fetch_gazebo)/launch/include/$(arg robot)_pp.launch.xml" />
+  <include file="$(find scene_setup)/launch/include/$(arg robot)_pp.launch.xml" />
 
 </launch>

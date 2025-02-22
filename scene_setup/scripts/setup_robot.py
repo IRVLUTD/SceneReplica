@@ -1,9 +1,11 @@
-import sys, argparse
-import numpy as np
-from scipy.io import savemat
+#!/usr/bin/env python
+import argparse
 import rospy
+import sys
+import rospkg
 
-sys.path.append("./utils/")
+st_path = rospkg.RosPack().get_path("scene_setup")
+sys.path.append(os.path.join(st_path,"utils/"))
 from utils_control import FollowTrajectoryClient, PointHeadClient
 
 
@@ -52,6 +54,8 @@ def main(args):
     )
     for _ in range(5):
         head_action.look_at(xloc, yloc, zloc, "base_link")
+
+    # Add init Position of Arm
 
 
 if __name__ == "__main__":

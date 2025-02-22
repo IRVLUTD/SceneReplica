@@ -1,0 +1,12 @@
+<launch>
+
+  <arg name="index" default="10" />
+
+  <!-- Launch the scene setup script with the index parameter -->
+  <node name="setup_ycb_scene" pkg="scene_setup" type="setup_ycb_scene.py" output="screen" 
+        args="--index $(arg index)" />
+
+  <!-- Launch RViz with the specified configuration file -->
+  <node name="rviz" pkg="rviz" type="rviz" output="screen" 
+        args="-d $(find scene_setup)/config/scene_setup.rviz" />
+</launch>

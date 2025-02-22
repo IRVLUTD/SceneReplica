@@ -28,9 +28,9 @@ class Gripper(object):
     """Gripper controls the robot's gripper."""
 
     MIN_EFFORT = 35  # Min grasp force, in Newtons
-    MAX_EFFORT = 100  # Max grasp force, in Newtons
+    MAX_EFFORT = 100  # Max grasp force, in Newtons #! Impossible for fetch gripper 60N max
 
-    CLOSED_DOF_VAL = 0.000145
+    CLOSED_DOF_VAL = 0.000145 #! Changes with new fingers
     OPENED_DOF_VAL = 0.05
 
     def __init__(self, group_gripper=None):

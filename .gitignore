@@ -9,6 +9,9 @@ __pycache__/
 # C extensions
 *.so
 
+/scene_setup/datasets
+scene_setup/datasets
+
 # Distribution / packaging
 .Python
 build/

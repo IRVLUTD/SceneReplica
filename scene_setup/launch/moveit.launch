@@ -1,0 +1,25 @@
+<launch>
+
+  <!-- Gazebo-specific arguments -->
+  <arg name="robot" default="fetch" doc="Robot type to use" />
+
+  <!-- URDF argument (plain URDF, no xacro) -->
+  <arg name="urdf_file_fetch" default="$(find fetch_description)/robots/calibrated/calibrated_2024_12_09_20_00_06_original_fingers.urdf" 
+       doc="Path to the URDF file for Fetch robot" />
+  <arg name="urdf_file_UMI" default="$(find fetch_description)/robots/calibrated/calibrated_2024_12_09_20_00_06.urdf" 
+       doc="Path to the URDF file for another robot" />
+
+  <!-- Overwrite robot_description with the new URDF based on robot arg -->
+  <group if="$(eval arg('robot') == 'fetch')">
+    <param name="robot_description" textfile="$(arg urdf_file_fetch)" />
+  </group>
+  <group if="$(eval arg('robot') == 'fetch_UMI')">
+    <param name="robot_description" textfile="$(arg urdf_file_UMI)" />
+  </group>
+
+
+  <!-- Launch MoveIt! move_group -->
+  <include file="$(find fetch_moveit_config)/launch/move_group.launch">
+  </include>
+
+</launch>

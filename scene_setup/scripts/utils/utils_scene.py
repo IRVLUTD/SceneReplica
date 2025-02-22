@@ -25,10 +25,12 @@ from gazebo_msgs.srv import (
     DeleteModel,
     SpawnModel,
 )
+import rospkg
 
-import utils_grid
-
-# import utils.utils_grid as utils_grid
+#import utils_grid
+st_path = rospkg.RosPack().get_path("scene_setup")
+sys.path.append(os.path.join(st_path,"scripts/utils/"))
+import utils_grid as utils_grid
 
 
 class WorldService:

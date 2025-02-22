@@ -42,6 +42,13 @@ def ros_qt_to_rt(rot, trans):
 
     return obj_T
 
+def isaac_pose_to_rt(qt, trans):
+    obj_T = np.eye(4)
+    obj_T[:3, :3] = quat2mat(qt)
+    obj_T[:3, 3] = trans
+
+    return obj_T
+
 
 def ros_pose_to_rt(pose):
     qarray = [0, 0, 0, 0]
@@ -61,7 +68,7 @@ def ros_pose_to_rt(pose):
 def rt_to_ros_pose(pose, rt):
     quat = mat2quat(rt[:3, :3])
     quat = [quat[1], quat[2], quat[3], quat[0]]
-    trans = rt[:3, 3]
+    trans = rt[:3, 3]#???
 
     pose.orientation.x = quat[0]
     pose.orientation.y = quat[1]
