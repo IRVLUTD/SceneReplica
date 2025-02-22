@@ -26,7 +26,7 @@
    This will launch an rviz window with the planning scene and the bench_model_based_grasping.py script.
 
 This branch assumes you have the fetch_ros_IRVL packages in your workspace instead of the fetch_ros.
-
+There is no need to add the models to the fetch gazebo package and the dataset/ directory must be included in the scene_setup folder. The experiments results are saved within that directory too as datasets/experiments/....
 # SceneReplica
 Code release for SceneReplica paper: [ArXiv](https://arxiv.org/abs/2306.15620) | [Webpage](https://irvlutd.github.io/SceneReplica/)
 
