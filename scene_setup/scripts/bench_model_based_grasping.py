@@ -13,7 +13,8 @@ import geometry_msgs.msg
 import moveit_msgs.msg
 import tf2_ros
 from tf.transformations import quaternion_matrix
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, WrenchStamped
+import threading
 
 st_path = rospkg.RosPack().get_path("scene_setup")
 sys.path.append(os.path.join(st_path,"scripts/utils/"))
@@ -180,6 +181,20 @@ def grasp_with_rt(
     :param RT_grasp: gripper pose for grasping
     :return:
     """
+    # Initialize force sensor variables
+    force_readings = []
+    current_force = np.zeros(3) 
+    force_monitor_active = threading.Event()  # To control thread termination
+    
+    def force_callback(msg):
+        nonlocal current_force, force_readings
+        # Extract force magnitude from WrenchStamped message
+        force = np.array(msg.wrench.force.x, msg.wrench.force.y, msg.wrench.force.z)
+        current_force = force
+        if len(force_readings) < 10:
+            force_readings.append(force)
+    
+
     pose_standoff = get_standoff_wp_poses()
     standoff_grasp_global = np.matmul(RT_grasp, pose_standoff)
     # Calling `stop()` ensures that there is no residual movement
@@ -218,6 +233,9 @@ def grasp_with_rt(
     group.stop()
     group.clear_pose_targets()
 
+    # Start force subscriber
+    force_sub = rospy.Subscriber('/gripper/ft_sensor', WrenchStamped, force_callback)
+
     scene.remove_world_object(object_name) # Remove object from planning scene
 
     waypoints = []
@@ -240,11 +258,61 @@ def grasp_with_rt(
     display_trajectory.trajectory.append(trajectory)
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
+    
+    force_protection = True
+    force_mean = np.zeros(3)
+
+    print("Collecting baseline force readings...")
+    for i in range(20):
+        if len(force_readings) > 10:
+            force_mean = np.mean(force_readings, axis = 0)
+            print("Mean Force = ", force_mean)
+            break
+        rospy.sleep(0.1)  # Wait for 10 readings at 100ms intervals
+    
+    if len(force_readings) < 10:
+        print("Failed to get sufficient force readings")
+        force_sub.unregister()
+        print("No Force Protection being used!")
+
+    # Define force monitoring thread
+    def monitor_force():
+        rate = rospy.Rate(100)  # 100 Hz
+        while force_monitor_active.is_set() and not rospy.is_shutdown():
+            force_diff = current_force - force_mean
+            force_diff_magnitude = np.linalg.norm(force_diff)  # Magnitude of difference vector
+            if force_diff_magnitude > 5.0:  # Check if force difference exceeds 5N
+                print(f"Force difference limit exceeded: {force_diff_magnitude:.2f} N > 5.0 N")
+                print(f"Current force: [{current_force[0]:.2f}, {current_force[1]:.2f}, {current_force[2]:.2f}] N")
+                group.stop()
+                force_monitor_active.clear()  # Stop monitoring
+                break
+            rate.sleep()
+
 
     input("Execute Grasp?")
-    group.execute(trajectory, wait=True) #! Add force sensor care here
+
+    # Force protection
+    # Start force monitoring thread
+    force_monitor_active.set()  # Activate monitoring
+    force_thread = threading.Thread(target=monitor_force, name="force_monitor")
+    force_thread.daemon = True  # Thread will terminate when main thread exits
+    force_thread.start()
+
+    success = group.execute(trajectory, wait=True) 
+
+    if success:
+        print("Grasp trajectory completed")
+    else:
+        print("Grasp trajectory interrupted by Force Sensing")
+    
+    # Stop force monitoring thread
+    force_monitor_active.clear()
+    force_thread.join(timeout=1.0)  # Give it a second to finish
+
     group.stop()
     group.clear_pose_targets()
+    force_sub.unregister()
 
     # close gripper
     print("Closing Gripper")
@@ -602,13 +670,14 @@ if __name__ == "__main__":
     # ---------------------------- initialize moveit components ---------------#
     # Place arm in init position
     print("Placing arm in initial stow position.")
-    print("Table Added to Planning Scene (Verify height with Point Cloud in Real Robot)")
     p = PoseStamped()
     table_position=(0.8, 0, 0)
     p.header.frame_id = robot.get_planning_frame()
     p.pose.position.x = table_position[0]
     p.pose.position.y = 0
     p.pose.position.z = table_height - 0.5  # 0.5 = half length of moveit obstacle box
+    scene.add_box("table", p, (1, 2, 1))
+    print("Table Added to Planning Scene (Verify height with Point Cloud in Real Robot)")
     rospy.sleep(1.0)
     reset_arm_stow(group)
 
