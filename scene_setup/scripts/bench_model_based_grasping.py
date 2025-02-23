@@ -285,12 +285,10 @@ def grasp_with_rt(
                 print(f"Force difference limit exceeded: {force_diff_magnitude:.2f} N > 5.0 N")
                 print(f"Current force: [{current_force[0]:.2f}, {current_force[1]:.2f}, {current_force[2]:.2f}] N")
                 group.stop()
-                force_monitor_active.clear()  # Stop monitoring
-                break
+                #force_monitor_active.clear()  # Stop monitoring
+                #break
             rate.sleep()
 
-
-    input("Execute Grasp?")
 
     # Force protection
     # Start force monitoring thread
@@ -298,6 +296,8 @@ def grasp_with_rt(
     force_thread = threading.Thread(target=monitor_force, name="force_monitor")
     force_thread.daemon = True  # Thread will terminate when main thread exits
     force_thread.start()
+    
+    input("Execute Grasp?")
 
     success = group.execute(trajectory, wait=True) 
 
