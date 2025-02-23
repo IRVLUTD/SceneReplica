@@ -144,7 +144,7 @@ def plan_grasp(
 
 
             (plan_standoff, fraction) = group.compute_cartesian_path( # when used in ROS Melodic the jump_threshold should be specified.
-                waypoints= waypoints, eef_step = 0.01, avoid_collisions = True  # waypoints to follow  # eef_step
+                waypoints= waypoints, eef_step = 0.01, jump_threshold = 1.0, avoid_collisions = True  # waypoints to follow  # eef_step
             )  
             obj_mesh_path = os.path.join(
                 models_path, obj_name, "textured_simple.obj"
@@ -244,7 +244,7 @@ def grasp_with_rt(
         wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
         waypoints.append(copy.deepcopy(wpose))
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints= waypoints, eef_step = 0.01, avoid_collisions = True  # waypoints to follow  # eef_step
+        waypoints= waypoints, eef_step = 0.01, jump_threshold = 1, avoid_collisions = True  # waypoints to follow  # eef_step
     )  
     
     #print(plan_standoff)
@@ -340,9 +340,23 @@ def get_pose(object_name: str, pose_method: str):
         return get_pose_posecnn(object_name)
     elif pose_method == "poserbpf":
         return get_pose_poserbpf(object_name)
+    elif pose_method == "gdrnpp":
+        return get_pose_gdrnpp(object_name)
     else:
         print(f"[ERROR] incorrect pose method provided : {pose_method}. Will return None!")
         return None
+
+
+def get_pose_gdrnpp(object_name: str):
+    """
+    Queries the GDRNPP topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "gdrnpp/00_cracker_box_01_roi"
+    # NOTE: The object name appears without the ycbid, "cracker_box" instead of "003_cracker_box"
+    gdrnpp_topic_name = f"gdrnpp/00_{object_name[4:]}_01_roi"
+    RT_obj = get_tf_pose(gdrnpp_topic_name, 'base_link')
+    return RT_obj
 
 def get_pose_posecnn(object_name: str):
     """
@@ -528,7 +542,7 @@ def make_args():
 
 
 if __name__ == "__main__":
-    VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac"} 
+    VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac", "gdrnpp"} 
 
     # Filter Ros Args
     ros_args = [arg for arg in sys.argv if arg.startswith('__')]
@@ -571,7 +585,7 @@ if __name__ == "__main__":
 
     #! Reading previously computed data
     model_dir = os.path.join(args.data_dir, "models")
-    grasp_dir = os.path.join(args.data_dir, "grasp_data", "midopen") #! Static grasp source
+    grasp_dir = os.path.join(args.data_dir, "grasp_data", "grasps") #! Static grasp source
     scene_dir = os.path.join(args.data_dir, args.scene_dir)
     #grasp_order_f = os.path.join(scene_dir, args.sgrasp_file)
     experiment_data_file = os.path.join(exp_dir, "exp_data.pk")
@@ -653,7 +667,7 @@ if __name__ == "__main__":
     # --------------------------- initialize moveit components ----------------#
     moveit_commander.roscpp_initialize(sys.argv)
     group = moveit_commander.MoveGroupCommander("arm")
-    group.set_max_velocity_scaling_factor(0.75) #! 1 may be too fast refine towards safe movement
+    group.set_max_velocity_scaling_factor(0.6) #! 1 may be too fast refine towards safe movement
     # group.set_max_acceleration_scaling_factor(1.0)
     group.set_end_effector_link("finger_tip_link") # Could be set as input to script
     group_grp = moveit_commander.MoveGroupCommander("gripper")
