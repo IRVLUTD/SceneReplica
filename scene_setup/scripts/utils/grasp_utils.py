@@ -82,7 +82,7 @@ def move_arm_to_dropoff(group, RT_gripper, table_height, x_final=0.45, y_final=0
     # waypoints.append(copy.deepcopy(wpose))
 
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, eef_step = 0.01, jump_threshold = 1, avoid_collisions = True  # waypoints to follow  # eef_step #! Stern movements
+        waypoints, eef_step = 0.01, avoid_collisions = True  # waypoints to follow  # eef_step #! Stern movements
     )  # jump_threshold
     # Moves to front
     print(f"Fraction for final dropoff movement: {fraction}")
@@ -135,7 +135,7 @@ def lift_arm_joint(group, confirm=True):
     return
 
 
-def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions= True, n_wps = 10):
+def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions=True, n_wps = 10):
     def set_pose_posn(wpose, pos):
         wpose.position.x = pos[0]
         wpose.position.y = pos[1]
@@ -157,7 +157,7 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions= True,
         waypoints.append(copy.deepcopy(wpose))
     
     (plan_standoff, fraction) = group.compute_cartesian_path( 
-        waypoints= waypoints, eef_step = 0.01, jump_threshold=1, avoid_collisions = True # waypoints to follow  # eef_step
+        waypoints= waypoints, eef_step = 0.01, avoid_collisions=True # waypoints to follow  # eef_step
     )  # avoid_collision instead of jump_threshold
     print(f"Fraction for lifitng movement: {fraction}")
     group.execute(plan_standoff, wait=True) #! May not compute trajectory
