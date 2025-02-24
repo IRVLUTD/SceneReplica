@@ -7,6 +7,7 @@ import trimesh
 import cv2
 from sklearn.decomposition import PCA
 from scipy.spatial import KDTree
+from geometry_msgs.msg import TwistStamped
 
 import rospy
 from ros_utils import ros_qt_to_rt, isaac_pose_to_rt
@@ -172,6 +173,229 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions=True, 
     group.clear_pose_targets()
     rospy.sleep(2)  #
     return 1
+
+def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
+    """
+    Lift the arm by z_offset meters using Cartesian velocity control.
+    
+    Args:
+        group: MoveIt commander group for the arm
+        z_offset (float): Distance to lift the arm in meters (default: 0.25)
+        timeout (float): Maximum time in seconds before aborting (default: 5.0)
+    
+    Returns:
+        int: 0 on success, -1 on timeout or failure
+    """
+    # Velocity limits
+    max_vel_z = rospy.get_param('~max_vel_z', 1)  # Reduced for safety
+    
+    # Acceleration limits
+    max_acc_x = rospy.get_param('~max_acc_x', 10)  # Lowered for smoother motion
+    max_acc_y = rospy.get_param('~max_acc_y', 10)
+    max_acc_z = rospy.get_param('~max_acc_z', 10)
+
+    # State variables
+    desired = TwistStamped()
+    last = TwistStamped()
+    last.header.frame_id = "base_link"
+    
+    # ROS Publisher
+    cmd_pub = rospy.Publisher(
+        '/arm_controller/cartesian_twist/command',
+        TwistStamped,
+        queue_size=10
+    )
+
+    # Control rate (100 Hz for smooth control)
+    rate = rospy.Rate(100)
+        
+    def integrate(desired, current, max_rate, dt):
+        """Integrate with rate limiting"""
+        if desired > current:
+            return min(desired, current + max_rate * dt)
+        return max(desired, current - max_rate * dt)
+
+    # Initial setup
+    active = True
+    wpose = group.get_current_pose().pose
+    rospy.loginfo(f"Gripper Translation before lifting: {wpose}")
+
+    z_start = wpose.position.z
+    z_final = z_start + z_offset
+    z_current = z_start
+
+    # Only move in Z direction for lifting
+    desired.twist.linear.x = 0.0
+    desired.twist.linear.y = 0.0
+    desired.twist.linear.z = max_vel_z 
+    desired.twist.angular.x = 0.0
+    desired.twist.angular.y = 0.0
+    desired.twist.angular.z = 0.0
+    desired.header.frame_id = "base_link"
+
+    last.twist.angular.x = 0.0
+    last.twist.angular.y = 0.0
+    last.twist.angular.z = 0.0
+
+    # Timeout handling
+    start_time = rospy.Time.now()
+    timeout_duration = rospy.Duration(timeout)
+    try: 
+        while z_current < z_final:
+            current_time = rospy.Time.now()
+            
+            # Check for timeout
+            if (current_time - start_time) > timeout_duration:
+                rospy.logwarn(f"Timeout ({timeout}s) reached while lifting arm. Stopping.")
+                break
+
+            # Calculate time step
+            dt = (current_time - last.header.stamp).to_sec()
+            last.header.stamp = current_time
+
+            last.twist.linear.z = integrate(
+                desired.twist.linear.z,
+                last.twist.linear.z,
+                max_acc_z,
+                dt
+            )
+            
+            # Publish the command
+            cmd_pub.publish(last)
+            
+            # Update current position
+            wpose = group.get_current_pose().pose
+            z_current = wpose.position.z
+            
+            # Safety check: stop if not moving significantly
+            if abs(z_current - z_start) < 0.01 and (current_time - start_time).to_sec() > 0.5:
+                rospy.logwarn("Arm not moving significantly. Possible limit reached. Stopping.")
+                break
+
+            rate.sleep()
+    finally: 
+        # Stop the arm
+        last = TwistStamped()
+        last.header.frame_id = "base_link"
+        last.twist.linear.x = 0.0
+        last.twist.linear.y = 0.0
+        last.twist.linear.z = 0.0
+        last.twist.angular.x = 0.0
+        last.twist.angular.y = 0.0
+        last.twist.angular.z = 0.0
+        cmd_pub.publish(last)
+        
+    # Log final position
+    wpose = group.get_current_pose().pose
+    rospy.loginfo(f"Gripper Translation after lifting: {wpose}")
+    
+    # Check if goal was reached
+    if abs(z_current - z_final) > 0.02:  # Allow 2cm tolerance
+        rospy.logwarn("Failed to reach target Z position.")
+        return -1
+    
+    return 0
+
+def lift_arm_twist_deprecated(group, z_offset=0.25):
+
+    # Velocity limits
+    max_vel_x = rospy.get_param('~max_vel_x', 1.0)
+    max_vel_y = rospy.get_param('~max_vel_y', 1.0)
+    max_vel_z = rospy.get_param('~max_vel_z', 1.0)
+    
+    # Acceleration limits
+    max_acc_x = rospy.get_param('~max_acc_x', 10.0)
+    max_acc_y = rospy.get_param('~max_acc_y', 10.0)
+    max_acc_z = rospy.get_param('~max_acc_z', 10.0)
+
+    # State variables
+    desired = TwistStamped()
+    last = TwistStamped()
+    last.header.frame_id = "base_link"
+    
+    # ROS Publishers and Subscribers
+    cmd_pub = rospy.Publisher(
+        '/arm_controller/cartesian_twist/command',
+        TwistStamped,
+        queue_size=10
+    )
+
+    # Control rate
+    rate = rospy.Rate(100)  
+        
+    def integrate( desired, current, max_rate, dt):
+        """Integrate with rate limiting (same as C++ version)"""
+        if desired > current:
+            return min(desired, current + max_rate * dt)
+        return max(desired, current - max_rate * dt)
+
+    current_time = rospy.Time.now()
+    # Update desired velocities based on mode
+    desired.twist.linear.x = max_vel_x
+    desired.twist.linear.y = max_vel_y
+    desired.twist.linear.z = max_vel_z
+    desired.twist.angular.x = 0.0
+    desired.twist.angular.y = 0.0
+    desired.twist.angular.z = 0.0
+    desired.header.frame_id = "base_link"
+
+    last.twist.angular.x = 0.0
+    last.twist.angular.y = 0.0
+    last.twist.angular.z = 0.0
+
+    # If we get here, we're active
+    active = True
+    
+    wpose = group.get_current_pose().pose
+    print("Gripper Translation before lifting\n", wpose)
+
+    z_start = wpose.position.z
+    z_final = wpose.position.z + z_offset
+    z_current = z_start
+
+    current_time = rospy.Time.now()
+
+    while z_current<z_final:
+        # Calculate time step
+        current_time = rospy.Time.now()
+        dt = (current_time - last.header.stamp).to_sec()
+        last.header.stamp = current_time
+        # Ramp commands with acceleration limits
+        last.twist.linear.x = integrate(
+            desired.twist.linear.x,
+            last.twist.linear.x,
+            max_acc_x,
+            dt
+        )
+        last.twist.linear.y = integrate(
+            desired.twist.linear.y,
+            last.twist.linear.y,
+            max_acc_y,
+            dt
+        )
+        last.twist.linear.z = integrate(
+            desired.twist.linear.z,
+            last.twist.linear.z,
+            max_acc_z,
+            dt
+        )
+        
+        # Publish the command
+        cmd_pub.publish(last)
+        wpose = group.get_current_pose().pose
+        z_current = wpose.position.z
+        rate.sleep()
+    
+    last = TwistStamped()
+    last.twist.linear.x = 0.0
+    last.twist.linear.y = 0.0
+    last.twist.linear.z = 0.0
+    last.twist.angular.x = 0.0
+    last.twist.angular.y = 0.0
+    last.twist.angular.z = 0.0
+    last.header.frame_id = "base_link"
+    cmd_pub.publish(last)
+    return 0
 
 
 def lift_arm_pose(group, confirm=True):

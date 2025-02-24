@@ -36,6 +36,7 @@ from utils.grasp_utils import (
     lift_arm_pose,
     move_arm_to_dropoff,
     rotate_gripper,
+    lift_arm_twist,
     user_confirmation,
     parse_grasps_isaac,
     isaac_sort_and_filter_grasps
@@ -276,12 +277,13 @@ def grasp_with_rt(
 
     # Define force monitoring thread
     def monitor_force():
-        rate = rospy.Rate(100)  # 100 Hz
+        rate = rospy.Rate(300)  # 300 Hz
         while force_monitor_active.is_set() and not rospy.is_shutdown():
             force_diff = current_force - force_mean
             force_diff_magnitude = np.linalg.norm(force_diff)  # Magnitude of difference vector
-            if force_diff_magnitude > 10.0:  # Check if force difference exceeds 5N
-                print(f"Force difference limit exceeded: {force_diff_magnitude:.2f} N > 5.0 N")
+            force_threshold = 10.0
+            if force_diff_magnitude > force_threshold:  # Check if force difference exceeds 5N
+                print(f"Force difference limit exceeded: {force_diff_magnitude:.2f} N > {force_threshold} N")
                 print(f"Current force: [{current_force[0]:.2f}, {current_force[1]:.2f}, {current_force[2]:.2f}] N")
                 group.stop()
                 #force_monitor_active.clear()  # Stop monitoring
@@ -841,35 +843,38 @@ if __name__ == "__main__":
             RT_gripper = get_gripper_rt(tf_buffer)
             print("RT_gripper before lifting\n", RT_gripper)
 
-            ret_code = lift_arm_cartesian(group, RT_gripper) 
-            if ret_code == 1:
-                # ----------------------- MOVING OBJECT ------------------------# #! Task completion
-                if gripper.is_fully_closed() or gripper.is_fully_open():
-                    print("Gripper fully open/closed (after Lifting)....Not Moving!")
-                    # TODO: LOG Lifting failure to log file
-                    logger.failure_gripper("Gripper fully open/closed (after Lifting)....Not Moving!")
-                else:
-                    logger.inform(f"{object_to_grasp} successfully lifted")
-                    print("Trying to move object")
-                    RT_gripper = get_gripper_rt(tf_buffer)
-                    rotate_gripper(group, RT_gripper) 
+            input("READY TO LIFT (DON'T enter anything)")
+            lift_arm_twist(group) 
 
-                    RT_gripper = get_gripper_rt(tf_buffer)
-                    print("RT_gripper after lift\n", RT_gripper)
-                    move_arm_to_dropoff(
-                        group, 
-                        RT_gripper,
-                        table_height, 
-                        x_final=0.78,
-                        n_wps= 3,
-                        ) 
+            input("Did it go well?")
 
-                    if gripper.is_fully_closed() or gripper.is_fully_open(): 
-                        print("Gripper fully open/closed (after Moving)....")
-                        # TODO: LOG Moving failure to log file
-                        logger.failure_dropoff("Gripper fully open/closed (after Moving).... ")
-                    logger.inform(f"{object_to_grasp} successfully droppedoff")
-        
+            # ----------------------- MOVING OBJECT ------------------------# #! Task completion
+            if gripper.is_fully_closed() or gripper.is_fully_open():
+                print("Gripper fully open/closed (after Lifting)....Not Moving!")
+                # TODO: LOG Lifting failure to log file
+                logger.failure_gripper("Gripper fully open/closed (after Lifting)....Not Moving!")
+            else:
+                logger.inform(f"{object_to_grasp} successfully lifted")
+                print("Trying to move object")
+                RT_gripper = get_gripper_rt(tf_buffer)
+                rotate_gripper(group, RT_gripper) 
+
+                RT_gripper = get_gripper_rt(tf_buffer)
+                print("RT_gripper after lift\n", RT_gripper)
+                move_arm_to_dropoff(
+                    group, 
+                    RT_gripper,
+                    table_height, 
+                    x_final=0.78,
+                    n_wps= 3,
+                    ) 
+
+                if gripper.is_fully_closed() or gripper.is_fully_open(): 
+                    print("Gripper fully open/closed (after Moving)....")
+                    # TODO: LOG Moving failure to log file
+                    logger.failure_dropoff("Gripper fully open/closed (after Moving).... ")
+                logger.inform(f"{object_to_grasp} successfully droppedoff")
+    
         # ------------------------ OPEN GRIPPER & STOW ---------------------#
         input("Open Gripper??")
         gripper.open()

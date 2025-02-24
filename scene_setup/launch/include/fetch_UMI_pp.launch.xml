@@ -6,7 +6,7 @@
   <arg name="yaw" default="0.0" />
 
   <!-- Setup controllers -->
-  <rosparam file="$(find fetch_gazebo)/config/default_controllers.yaml" command="load" />
+  <rosparam file="$(find scene_setup)/config/default_controllers.yaml" command="load" />
 
   <!-- URDF and TF support -->
   <param name="robot_description" command="$(find xacro)/xacro $(find scene_setup)/launch/include/fetch_UMI.gazebo.xacro" />
