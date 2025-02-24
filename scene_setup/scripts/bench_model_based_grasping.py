@@ -144,7 +144,7 @@ def plan_grasp(
 
 
             (plan_standoff, fraction) = group.compute_cartesian_path( # when used in ROS Melodic the jump_threshold should be specified.
-                waypoints= waypoints, eef_step = 0.01, jump_threshold = 1.0, avoid_collisions = True  # waypoints to follow  # eef_step
+                waypoints= waypoints, eef_step = 0.01, avoid_collisions = True  # waypoints to follow  # eef_step
             )  
             obj_mesh_path = os.path.join(
                 models_path, obj_name, "textured_simple.obj"
@@ -189,7 +189,7 @@ def grasp_with_rt(
     def force_callback(msg):
         nonlocal current_force, force_readings
         # Extract force magnitude from WrenchStamped message
-        force = np.array(msg.wrench.force.x, msg.wrench.force.y, msg.wrench.force.z)
+        force = np.array((msg.wrench.force.x, msg.wrench.force.y, msg.wrench.force.z))
         current_force = force
         if len(force_readings) < 10:
             force_readings.append(force)
@@ -244,7 +244,7 @@ def grasp_with_rt(
         wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
         waypoints.append(copy.deepcopy(wpose))
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints= waypoints, eef_step = 0.01, jump_threshold = 1, avoid_collisions = True  # waypoints to follow  # eef_step
+        waypoints= waypoints, eef_step = 0.01, avoid_collisions = True  # waypoints to follow  # eef_step
     )  
     
     #print(plan_standoff)
@@ -259,12 +259,11 @@ def grasp_with_rt(
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
     
-    force_protection = True
     force_mean = np.zeros(3)
 
     print("Collecting baseline force readings...")
     for i in range(20):
-        if len(force_readings) > 10:
+        if len(force_readings) >= 10:
             force_mean = np.mean(force_readings, axis = 0)
             print("Mean Force = ", force_mean)
             break
@@ -281,7 +280,7 @@ def grasp_with_rt(
         while force_monitor_active.is_set() and not rospy.is_shutdown():
             force_diff = current_force - force_mean
             force_diff_magnitude = np.linalg.norm(force_diff)  # Magnitude of difference vector
-            if force_diff_magnitude > 5.0:  # Check if force difference exceeds 5N
+            if force_diff_magnitude > 10.0:  # Check if force difference exceeds 5N
                 print(f"Force difference limit exceeded: {force_diff_magnitude:.2f} N > 5.0 N")
                 print(f"Current force: [{current_force[0]:.2f}, {current_force[1]:.2f}, {current_force[2]:.2f}] N")
                 group.stop()
