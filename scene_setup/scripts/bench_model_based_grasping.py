@@ -828,50 +828,47 @@ if __name__ == "__main__":
             group.stop()
             group.clear_pose_targets()
             
-            lift_arm_cartesian(#! Emergency lift (release pressure)
-                group,
-                RT_gripper, 
-                avoid_collisions=False, 
-                z_offset=0.01, 
-                n_wps = 3
-                ) 
+            # lift_arm_cartesian(#! Emergency lift (release pressure)
+            #     group,
+            #     RT_gripper, 
+            #     avoid_collisions=False, 
+            #     z_offset=0.01, 
+            #     n_wps = 3
+            #     ) 
         else:
             
             print("Trying to lift object")
             RT_gripper = get_gripper_rt(tf_buffer)
             print("RT_gripper before lifting\n", RT_gripper)
 
+            ret_code = lift_arm_cartesian(group, RT_gripper) 
+            if ret_code == 1:
+                # ----------------------- MOVING OBJECT ------------------------# #! Task completion
+                if gripper.is_fully_closed() or gripper.is_fully_open():
+                    print("Gripper fully open/closed (after Lifting)....Not Moving!")
+                    # TODO: LOG Lifting failure to log file
+                    logger.failure_gripper("Gripper fully open/closed (after Lifting)....Not Moving!")
+                else:
+                    logger.inform(f"{object_to_grasp} successfully lifted")
+                    print("Trying to move object")
+                    RT_gripper = get_gripper_rt(tf_buffer)
+                    rotate_gripper(group, RT_gripper) 
 
-            lift_arm_cartesian(group, RT_gripper) 
-            
+                    RT_gripper = get_gripper_rt(tf_buffer)
+                    print("RT_gripper after lift\n", RT_gripper)
+                    move_arm_to_dropoff(
+                        group, 
+                        RT_gripper,
+                        table_height, 
+                        x_final=0.78,
+                        n_wps= 3,
+                        ) 
 
-            # ----------------------- MOVING OBJECT ------------------------# #! Task completion
-            if gripper.is_fully_closed() or gripper.is_fully_open():
-                print("Gripper fully open/closed (after Lifting)....Not Moving!")
-                # TODO: LOG Lifting failure to log file
-                logger.failure_gripper("Gripper fully open/closed (after Lifting)....Not Moving!")
-
-            else:
-                logger.inform(f"{object_to_grasp} successfully lifted")
-                print("Trying to move object")
-                RT_gripper = get_gripper_rt(tf_buffer)
-                rotate_gripper(group, RT_gripper) 
-
-                RT_gripper = get_gripper_rt(tf_buffer)
-                print("RT_gripper after lift\n", RT_gripper)
-                move_arm_to_dropoff(
-                    group, 
-                    RT_gripper,
-                    table_height, 
-                    x_final=0.78,
-                    n_wps= 3,
-                    ) 
-
-                if gripper.is_fully_closed() or gripper.is_fully_open(): 
-                    print("Gripper fully open/closed (after Moving)....")
-                    # TODO: LOG Moving failure to log file
-                    logger.failure_dropoff("Gripper fully open/closed (after Moving).... ")
-                logger.inform(f"{object_to_grasp} successfully droppedoff")
+                    if gripper.is_fully_closed() or gripper.is_fully_open(): 
+                        print("Gripper fully open/closed (after Moving)....")
+                        # TODO: LOG Moving failure to log file
+                        logger.failure_dropoff("Gripper fully open/closed (after Moving).... ")
+                    logger.inform(f"{object_to_grasp} successfully droppedoff")
         
         # ------------------------ OPEN GRIPPER & STOW ---------------------#
         input("Open Gripper??")

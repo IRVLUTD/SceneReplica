@@ -160,10 +160,18 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions=True, 
         waypoints= waypoints, eef_step = 0.01, avoid_collisions=True # waypoints to follow  # eef_step
     )  # avoid_collision instead of jump_threshold
     print(f"Fraction for lifitng movement: {fraction}")
+
+    _ask = None
+    while _ask != "lift":
+        _ask = input('Should I Lift? Enter "lift" to lift or "n" to cancel: ').lower()
+        if _ask == "n":
+            return 0
+
     group.execute(plan_standoff, wait=True) #! May not compute trajectory
     group.stop()
     group.clear_pose_targets()
     rospy.sleep(2)  #
+    return 1
 
 
 def lift_arm_pose(group, confirm=True):
