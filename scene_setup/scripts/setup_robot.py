@@ -3,10 +3,13 @@ import argparse
 import rospy
 import sys
 import rospkg
+import os
 
-st_path = rospkg.RosPack().get_path("scene_setup")
-sys.path.append(os.path.join(st_path,"utils/"))
-from utils_control import FollowTrajectoryClient, PointHeadClient
+# st_path = rospkg.RosPack().get_path("scene_setup")
+
+# sys.path.append(os.path.join(st_path,"utils/"))
+
+from utils.utils_control import FollowTrajectoryClient, PointHeadClient
 
 
 def make_args():
