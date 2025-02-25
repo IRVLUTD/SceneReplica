@@ -10,7 +10,7 @@
   <arg name="rviz_config" default="$(find scene_setup)/config/scene_performance.rviz" doc="RViz configuration file" />
 
   <!-- Launch RViz with output silenced -->
-  <node name="rviz" pkg="rviz" type="rviz" output="log" 
+  <node name="rviz_04334" pkg="rviz" type="rviz" output="log" 
         launch-prefix="bash -c &quot;$0 $@ &gt; /dev/null 2&gt;&amp;1&quot;" 
         args="-d $(arg rviz_config)" />
 

@@ -5,12 +5,10 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /PlanningScene1/Scene Geometry1
-        - /Image1
-        - /PointCloud21
         - /TF1
         - /TF1/Frames1
       Splitter Ratio: 0.5
-    Tree Height: 462
+    Tree Height: 363
   - Class: rviz/Selection
     Name: Selection
   - Class: rviz/Tool Properties
@@ -28,7 +26,7 @@ Panels:
   - Class: rviz/Time
     Name: Time
     SyncMode: 0
-    SyncSource: Image
+    SyncSource: RGB Img (Fetch)
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -198,7 +196,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-      Loop Animation: false
+      Loop Animation: true
       Name: Trajectory
       Robot Alpha: 0.5
       Robot Color: 150; 50; 150
@@ -370,18 +368,6 @@ Visualization Manager:
         Show Robot Collision: false
         Show Robot Visual: true
       Value: true
-    - Class: rviz/Image
-      Enabled: true
-      Image Topic: /yolo_label_00
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -433,17 +419,27 @@ Visualization Manager:
           Value: false
         forearm_roll_link:
           Value: false
-        gdrnpp/00_banana_01_roi:
-          Value: true
         gdrnpp/00_bleach_cleanser_01_roi:
           Value: true
-        gdrnpp/00_cracker_box_01_roi:
+        gdrnpp/00_bleach_cleanser_02_roi:
+          Value: true
+        gdrnpp/00_foam_brick_01_roi:
+          Value: true
+        gdrnpp/00_master_chef_can_01_roi:
+          Value: true
+        gdrnpp/00_mustard_bottle_01_roi:
           Value: true
         gdrnpp/00_pitcher_base_01_roi:
           Value: true
-        gdrnpp/00_potted_meat_can_01_roi:
+        gdrnpp/00_pitcher_base_02_roi:
           Value: true
-        gdrnpp/00_power_drill_01_roi:
+        gdrnpp/00_pudding_box_01_roi:
+          Value: true
+        gdrnpp/00_scissors_01_roi:
+          Value: true
+        gdrnpp/00_tomato_soup_can_01_roi:
+          Value: true
+        gdrnpp/00_tuna_fish_can_01_roi:
           Value: true
         gripper_link:
           Value: false
@@ -467,12 +463,46 @@ Visualization Manager:
           Value: false
         laser_link:
           Value: false
+        measured/camera_accel_frame:
+          Value: false
+        measured/camera_accel_optical_frame:
+          Value: false
+        measured/camera_aligned_depth_to_color_frame:
+          Value: false
+        measured/camera_color_frame:
+          Value: false
+        measured/camera_color_optical_frame:
+          Value: false
+        measured/camera_depth_frame:
+          Value: false
+        measured/camera_depth_optical_frame:
+          Value: false
+        measured/camera_gyro_frame:
+          Value: false
+        measured/camera_gyro_optical_frame:
+          Value: false
+        measured/camera_infra1_frame:
+          Value: false
+        measured/camera_infra1_optical_frame:
+          Value: false
+        measured/camera_link:
+          Value: false
         odom:
           Value: false
         r_gripper_finger_link:
           Value: false
         r_wheel_link:
           Value: false
+        reference/005_tomato_soup_can:
+          Value: false
+        reference/006_mustard_bottle:
+          Value: true
+        reference/007_tuna_fish_can:
+          Value: true
+        reference/008_pudding_box:
+          Value: true
+        reference/021_bleach_cleanser:
+          Value: true
         shoulder_lift_link:
           Value: false
         shoulder_pan_link:
@@ -487,18 +517,28 @@ Visualization Manager:
           Value: false
         wrist_roll_link:
           Value: false
-        yolo/00_banana_01_roi:
-          Value: false
         yolo/00_bleach_cleanser_01_roi:
-          Value: false
-        yolo/00_cracker_box_01_roi:
-          Value: false
+          Value: true
+        yolo/00_bleach_cleanser_02_roi:
+          Value: true
+        yolo/00_foam_brick_01_roi:
+          Value: true
+        yolo/00_master_chef_can_01_roi:
+          Value: true
+        yolo/00_mustard_bottle_01_roi:
+          Value: true
         yolo/00_pitcher_base_01_roi:
-          Value: false
-        yolo/00_potted_meat_can_01_roi:
-          Value: false
-        yolo/00_power_drill_01_roi:
-          Value: false
+          Value: true
+        yolo/00_pitcher_base_02_roi:
+          Value: true
+        yolo/00_pudding_box_01_roi:
+          Value: true
+        yolo/00_scissors_01_roi:
+          Value: true
+        yolo/00_tomato_soup_can_01_roi:
+          Value: true
+        yolo/00_tuna_fish_can_01_roi:
+          Value: true
       Marker Alpha: 1
       Marker Scale: 0.5
       Name: TF
@@ -506,6 +546,24 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Tree:
+        measured/camera_link:
+          measured/camera_accel_frame:
+            measured/camera_accel_optical_frame:
+              {}
+          measured/camera_aligned_depth_to_color_frame:
+            measured/camera_color_optical_frame:
+              {}
+          measured/camera_color_frame:
+            {}
+          measured/camera_depth_frame:
+            measured/camera_depth_optical_frame:
+              {}
+          measured/camera_gyro_frame:
+            measured/camera_gyro_optical_frame:
+              {}
+          measured/camera_infra1_frame:
+            measured/camera_infra1_optical_frame:
+              {}
         odom:
           base_link:
             estop_link:
@@ -515,6 +573,16 @@ Visualization Manager:
             laser_link:
               {}
             r_wheel_link:
+              {}
+            reference/005_tomato_soup_can:
+              {}
+            reference/006_mustard_bottle:
+              {}
+            reference/007_tuna_fish_can:
+              {}
+            reference/008_pudding_box:
+              {}
+            reference/021_bleach_cleanser:
               {}
             torso_fixed_link:
               {}
@@ -531,29 +599,49 @@ Visualization Manager:
                         {}
                     head_camera_rgb_frame:
                       head_camera_rgb_optical_frame:
-                        gdrnpp/00_banana_01_roi:
-                          {}
                         gdrnpp/00_bleach_cleanser_01_roi:
                           {}
-                        gdrnpp/00_cracker_box_01_roi:
+                        gdrnpp/00_bleach_cleanser_02_roi:
+                          {}
+                        gdrnpp/00_foam_brick_01_roi:
+                          {}
+                        gdrnpp/00_master_chef_can_01_roi:
+                          {}
+                        gdrnpp/00_mustard_bottle_01_roi:
                           {}
                         gdrnpp/00_pitcher_base_01_roi:
                           {}
-                        gdrnpp/00_potted_meat_can_01_roi:
+                        gdrnpp/00_pitcher_base_02_roi:
                           {}
-                        gdrnpp/00_power_drill_01_roi:
+                        gdrnpp/00_pudding_box_01_roi:
                           {}
-                        yolo/00_banana_01_roi:
+                        gdrnpp/00_scissors_01_roi:
+                          {}
+                        gdrnpp/00_tomato_soup_can_01_roi:
+                          {}
+                        gdrnpp/00_tuna_fish_can_01_roi:
                           {}
                         yolo/00_bleach_cleanser_01_roi:
                           {}
-                        yolo/00_cracker_box_01_roi:
+                        yolo/00_bleach_cleanser_02_roi:
+                          {}
+                        yolo/00_foam_brick_01_roi:
+                          {}
+                        yolo/00_master_chef_can_01_roi:
+                          {}
+                        yolo/00_mustard_bottle_01_roi:
                           {}
                         yolo/00_pitcher_base_01_roi:
                           {}
-                        yolo/00_potted_meat_can_01_roi:
+                        yolo/00_pitcher_base_02_roi:
                           {}
-                        yolo/00_power_drill_01_roi:
+                        yolo/00_pudding_box_01_roi:
+                          {}
+                        yolo/00_scissors_01_roi:
+                          {}
+                        yolo/00_tomato_soup_can_01_roi:
+                          {}
+                        yolo/00_tuna_fish_can_01_roi:
                           {}
               shoulder_pan_link:
                 shoulder_lift_link:
@@ -571,6 +659,54 @@ Visualization Manager:
                                 r_gripper_finger_link:
                                   {}
       Update Interval: 0
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /camera/color/image_raw
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Realsense Capture
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /yolo_label_00
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: YoloX Detection
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /head_camera/rgb/image_raw
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: RGB Img (Fetch)
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /head_camera/depth_registered/image_raw
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Depth Img (Fetch)
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
       Value: true
   Enabled: true
   Global Options:
@@ -600,7 +736,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 3.891598701477051
+      Distance: 3.870572090148926
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -608,27 +744,31 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -1.4103504419326782
-        Y: 0.02298724837601185
-        Z: -0.16139128804206848
+        X: -1.1826133728027344
+        Y: -0.002539854496717453
+        Z: -0.3216513693332672
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.505398154258728
+      Pitch: 0.6503980159759521
       Target Frame: <Fixed Frame>
-      Yaw: 0.0603981576859951
+      Yaw: 0.0004014931619167328
     Saved: ~
 Window Geometry:
+  Depth Img (Fetch):
+    collapsed: false
   Displays:
     collapsed: false
-  Height: 964
+  Height: 1043
   Hide Left Dock: false
   Hide Right Dock: true
-  Image:
+  QMainWindow State: 000000ff00000000fd00000004000000000000032f0000025cfc020000000afb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb000000280020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000000000000000fb0000003c005400720061006a006500630074006f007200790020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000001600000016fc0000019a0000025c0000001600fffffffa000000010100000002fb000000100044006900730070006c0061007900730000000000ffffffff0000015600fffffffb00000022005200650061006c00730065006e00730065002000430061007000740075007200650100000000000002d7000000cb00ffffff000000010000010f000002adfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003d000002ad000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b2000000000000000000000002000007800000017efc0100000004fb0000001e00520047004200200049006d006700200028004600650074006300680029010000000000000268000000b900fffffffb000000220044006500700074006800200049006d006700200028004600650074006300680029010000026e0000023a000000c600fffffffb0000001e0059006f006c006f005800200044006500740065006300740069006f006e01000004ae000002d2000000bb00fffffffb0000000a00560069006500770073030000004e00000080000002e100000197000000030000078000000041fc0100000002fb0000000800540069006d00650000000000000007800000041800fffffffb0000000800540069006d006501000000000000045000000000000000000000044b0000025c00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730000000000ffffffff0000000000000000
+  RGB Img (Fetch):
     collapsed: false
-  QMainWindow State: 000000ff00000000fd00000004000000000000015600000323fc020000000bfb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003d00000259000000c900fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb000000280020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000000000000000fb0000003c005400720061006a006500630074006f007200790020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000001600000016fb0000000a0049006d006100670065010000029c000000c40000001600ffffff000000010000010f000002adfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003d000002ad000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e100000197000000030000041800000041fc0100000002fb0000000800540069006d0065010000000000000418000003bc00fffffffb0000000800540069006d00650100000000000004500000000000000000000002bc0000032300000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Realsense Capture:
+    collapsed: false
   Selection:
     collapsed: false
   Time:
@@ -639,6 +779,8 @@ Window Geometry:
     collapsed: false
   Views:
     collapsed: true
-  Width: 1048
-  X: 2792
-  Y: 27
+  Width: 1920
+  X: 0
+  Y: 0
+  YoloX Detection:
+    collapsed: false

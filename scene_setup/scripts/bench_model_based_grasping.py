@@ -36,6 +36,7 @@ from utils.grasp_utils import (
     lift_arm_pose,
     move_arm_to_dropoff,
     rotate_gripper,
+    rotate_gripper_twist,
     lift_arm_twist,
     user_confirmation,
     parse_grasps_isaac,
@@ -843,9 +844,9 @@ if __name__ == "__main__":
             RT_gripper = get_gripper_rt(tf_buffer)
             print("RT_gripper before lifting\n", RT_gripper)
 
-            input("READY TO LIFT (DON'T enter anything)")
+            #input("READY TO LIFT (DON'T enter anything)")
             lift_arm_twist(group) 
-
+            rospy.sleep(2)
             input("Did it go well?")
 
             # ----------------------- MOVING OBJECT ------------------------# #! Task completion
@@ -858,6 +859,7 @@ if __name__ == "__main__":
                 print("Trying to move object")
                 RT_gripper = get_gripper_rt(tf_buffer)
                 rotate_gripper(group, RT_gripper) 
+                # rotate_gripper_twist(group)
 
                 RT_gripper = get_gripper_rt(tf_buffer)
                 print("RT_gripper after lift\n", RT_gripper)

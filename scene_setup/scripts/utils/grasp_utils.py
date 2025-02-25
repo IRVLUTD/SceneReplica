@@ -8,11 +8,30 @@ import cv2
 from sklearn.decomposition import PCA
 from scipy.spatial import KDTree
 from geometry_msgs.msg import TwistStamped
+from sensor_msgs.msg import JointState
 
 import rospy
 from ros_utils import ros_qt_to_rt, isaac_pose_to_rt
 from tf.transformations import euler_matrix
 
+
+def clamp_joint_values(group, values):
+    joint_names = group.get_active_joints()
+    fetch_limits = {
+        "shoulder_pan_joint": (-1.6056, 1.6056),
+        "shoulder_lift_joint": (-1.221, 1.518),
+        "upperarm_roll_joint": (-3.05, 3.05),
+        "elbow_flex_joint": (-2.251, 2.251),
+        "forearm_roll_joint": (-3.05, 3.05),
+        "wrist_flex_joint": (-2.16, 2.16),
+        "wrist_roll_joint": (-3.05, 3.05)
+    }
+    clamped = values.copy()
+    for i, name in enumerate(joint_names):
+        min_val, max_val = fetch_limits[name]
+        clamped[i] = max(min_val, min(max_val, values[i]))
+    return clamped
+    
 
 ################ Lifting, Standoff, Movement Utils #####################
 def rotate_gripper(group, RT_gripper):
@@ -27,11 +46,25 @@ def rotate_gripper(group, RT_gripper):
     - RT_gripper : 4x4 tf for wrist_roll_joint (gripper) w.r.t base_link
     """
     group.stop()
+
+    # Get joint names and values
+    joint_names = group.get_active_joints()  # e.g., ['shoulder_pan_joint', ..., 'wrist_roll_joint']
     joint_goal = group.get_current_joint_values()
-    joint_goal[-1] += np.radians(30)
+    joint_goal = clamp_joint_values(group, joint_goal)
+
+    # Create JointState
+    joint_state = JointState()
+    joint_state.header.stamp = rospy.Time.now()
+    joint_state.name = joint_names
+    if joint_goal[-1]< 0:
+        joint_goal[-1] += np.radians(30)
+    else:
+        joint_goal[-1] -= np.radians(30)
     # wrist flex joint, index 5, limit -2.1
+    joint_state.position = joint_goal
+    print(joint_state)
     # joint_goal[-2] = max(joint_goal[-2] + np.radians(30), -2.1)
-    group.go(joint_goal, wait=True)
+    group.go(joint_state, wait=True)
     group.stop()
     rospy.sleep(1)
 
@@ -91,16 +124,28 @@ def move_arm_to_dropoff(group, RT_gripper, table_height, x_final=0.45, y_final=0
     group.stop()
     group.clear_pose_targets()
 
+
     #! Implement force_torque protection here
 
     # group.stop()
     # Sets shoulder pan to +/- 60 degrees
     joint_goal = group.get_current_joint_values()
+    joint_goal = clamp_joint_values(group, joint_goal)
+    
     RAD_60 = np.radians(60)
     joint_goal[0] = RAD_60 if  joint_goal[0] >= 0 else -RAD_60 
     group.go(joint_goal, wait=True)
     group.stop()
     rospy.sleep(0.5)
+
+
+def stop_twist_controller(cmd_pub):
+    # stop_msg = TwistStamped()
+    # # stop_msg.header.frame_id = ""
+    # # stop_msg.header.stamp = rospy.Time.now()
+    # cmd_pub.publish(stop_msg)
+    # rospy.sleep(0.2)  # Wait for the arm to settle
+    pass
 
 
 def lift_arm_joint(group, confirm=True):
@@ -174,7 +219,8 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions=True, 
     rospy.sleep(2)  #
     return 1
 
-def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
+
+def lift_arm_twist(group, z_offset=0.25, timeout=3):
     """
     Lift the arm by z_offset meters using Cartesian velocity control.
     
@@ -187,7 +233,7 @@ def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
         int: 0 on success, -1 on timeout or failure
     """
     # Velocity limits
-    max_vel_z = rospy.get_param('~max_vel_z', 1)  # Reduced for safety
+    max_vel_z = rospy.get_param('~max_vel_z', 0.6)  # Reduced for safety
     
     # Acceleration limits
     max_acc_x = rospy.get_param('~max_acc_x', 10)  # Lowered for smoother motion
@@ -218,7 +264,7 @@ def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
     # Initial setup
     active = True
     wpose = group.get_current_pose().pose
-    rospy.loginfo(f"Gripper Translation before lifting: {wpose}")
+    rospy.loginfo(f"Gripper Translation before lifting: {wpose.position}")
 
     z_start = wpose.position.z
     z_final = z_start + z_offset
@@ -236,6 +282,7 @@ def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
     last.twist.angular.x = 0.0
     last.twist.angular.y = 0.0
     last.twist.angular.z = 0.0
+    last.header.frame_id = "base_link"
 
     # Timeout handling
     start_time = rospy.Time.now()
@@ -268,7 +315,7 @@ def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
             z_current = wpose.position.z
             
             # Safety check: stop if not moving significantly
-            if abs(z_current - z_start) < 0.01 and (current_time - start_time).to_sec() > 0.5:
+            if abs(z_current - z_start) < 0.01 and (current_time - start_time).to_sec() > 1:
                 rospy.logwarn("Arm not moving significantly. Possible limit reached. Stopping.")
                 break
 
@@ -287,14 +334,157 @@ def lift_arm_twist(group, z_offset=0.25, timeout=2.5):
         
     # Log final position
     wpose = group.get_current_pose().pose
-    rospy.loginfo(f"Gripper Translation after lifting: {wpose}")
-    
+    rospy.loginfo(f"Gripper Translation after lifting: {wpose.position}")
+
+    stop_twist_controller(cmd_pub)
+
     # Check if goal was reached
     if abs(z_current - z_final) > 0.02:  # Allow 2cm tolerance
         rospy.logwarn("Failed to reach target Z position.")
         return -1
+   
+    return 0
+
+
+def rotate_gripper_twist(group, roll_offset=0.523599, timeout=3):
+    """
+    Lift the arm by z_offset meters using Cartesian velocity control.
+    
+    Args:
+        group: MoveIt commander group for the arm
+        z_offset (float): Distance to lift the arm in meters (default: 0.25)
+        timeout (float): Maximum time in seconds before aborting (default: 5.0)
+    
+    Returns:
+        int: 0 on success, -1 on timeout or failure
+    """
+    
+    
+    # Velocity limits
+    max_vel_roll = rospy.get_param('~max_vel_roll', 1.0)  # Lowered for smoother motion
+    max_vel_pitch = rospy.get_param('~max_vel_pitch', 1.0)
+    max_vel_yaw = rospy.get_param('~max_vel_yaw', 1.0)
+
+    #Acceleration limits
+    max_acc_roll = rospy.get_param('~max_acc_roll', 10.0)  # x
+    max_acc_pitch = rospy.get_param('~max_acc_pitch', 10.0) # y 
+    max_acc_yaw = rospy.get_param('~max_acc_yaw', 10.0) # z
+
+
+    # State variables
+    desired = TwistStamped()
+    last = TwistStamped()
+    last.header.frame_id = "gripper_link"
+    
+    # ROS Publisher
+    cmd_pub = rospy.Publisher(
+        '/arm_controller/cartesian_twist/command',
+        TwistStamped,
+        queue_size=10
+    )
+
+    # Control rate (100 Hz for smooth control)
+    rate = rospy.Rate(100)
+        
+    def integrate(desired, current, max_rate, dt):
+        """Integrate with rate limiting"""
+        if desired > current:
+            return min(desired, current + max_rate * dt)
+        return max(desired, current - max_rate * dt)
+
+    # Initial setup
+    joint_values = group.get_current_joint_values()
+    joint_names = group.get_active_joints()
+    print("Joint names:", joint_names)
+    wrist_roll_index = joint_names.index("wrist_roll_joint")
+    wrist_roll_angle = joint_values[wrist_roll_index]
+    print("Wrist roll joint angle (radians):", wrist_roll_angle)
+
+    roll_start = wrist_roll_angle
+    roll_final = (wrist_roll_angle + roll_offset) if wrist_roll_angle < 0 else (wrist_roll_angle - roll_offset)
+    roll_current = roll_start
+
+    # Only move in Z direction for lifting
+    desired.twist.linear.x = 0.0
+    desired.twist.linear.y = 0.0
+    desired.twist.linear.z = 0.0
+    desired.twist.angular.z = max_vel_roll if wrist_roll_angle < 0 else - max_vel_roll # radians/s 10 degrees/s
+    desired.twist.angular.x = 0.0
+    desired.twist.angular.y = 0.0
+    desired.header.frame_id = "gripper_link"
+
+    last.twist.linear.x = 0.0
+    last.twist.linear.y = 0.0
+    last.twist.linear.z = 0.0
+    last.twist.angular.x = 0.0
+    last.twist.angular.y = 0.0
+    last.twist.angular.z = 0.0
+    last.header.frame_id = "gripper_link"
+
+    # Timeout handling
+    start_time = rospy.Time.now()
+    timeout_duration = rospy.Duration(timeout)
+    try: 
+        while (roll_current < roll_final) if wrist_roll_angle < 0 else (roll_current > roll_final):
+            current_time = rospy.Time.now()
+            
+            # Check for timeout
+            if (current_time - start_time) > timeout_duration:
+                print(f"Timeout ({timeout}s) reached rotating gripper. Stopping.")
+                break
+
+            # Calculate time step
+            dt = (current_time - last.header.stamp).to_sec()
+            last.header.stamp = current_time
+
+
+            last.twist.angular.z = integrate(
+                desired.twist.angular.z,
+                last.twist.angular.z,
+                max_acc_roll,
+                dt
+            )
+
+            
+            # Publish the command
+            cmd_pub.publish(last)
+            
+            # Update current position
+            wpose = group.get_current_pose().pose
+            roll_current = wpose.position.z
+            
+            # Safety check: stop if not moving significantly
+            # if abs(roll_current - roll_final) < 0.01 and (current_time - start_time).to_sec() > 1:
+            #    print("Arm not moving significantly. Possible limit reached. Stopping.")
+               #break
+
+            rate.sleep()
+    finally: 
+        # Stop the arm
+        last = TwistStamped()
+        last.header.frame_id = "base_link"
+        last.twist.linear.x = 0.0
+        last.twist.linear.y = 0.0
+        last.twist.linear.z = 0.0
+        last.twist.angular.x = 0.0
+        last.twist.angular.y = 0.0
+        last.twist.angular.z = 0.0
+        cmd_pub.publish(last)
+        
+    # Log final position
+    joint_values = group.get_current_joint_values()
+    wrist_roll_angle = joint_values[wrist_roll_index]
+    print("Final Wrist roll joint angle (radians):", wrist_roll_angle)
+    
+    stop_twist_controller(cmd_pub)
+
+    # Check if goal was reached
+    if abs(roll_current - roll_final) > 0.02:  # Allow 2cm tolerance
+        print("Failed to reach target Roll position.")
+        return -1
     
     return 0
+
 
 def lift_arm_twist_deprecated(group, z_offset=0.25):
 
@@ -424,7 +614,7 @@ def lift_arm_pose(group, confirm=True):
     group.clear_pose_targets()
 
 
-def get_standoff_wp_poses(standoff_dist=0.1, tail_len=11, extra_off=0.01): 
+def get_standoff_wp_poses(standoff_dist=0.1, tail_len=3, extra_off=0.01): 
     """
     For any 6Dof Grasp pose (as 4x4 tf), compute the standoffpose and waypoints along
     the direction from standoff to final pose.
@@ -438,7 +628,7 @@ def get_standoff_wp_poses(standoff_dist=0.1, tail_len=11, extra_off=0.01):
     - pose_standoff (np.ndarray) : (tail_len+1, 4, 4) numpy array containing tfs for all waypoints in
                                     gripper frame. So just premultiply with RT_gripper to get in global frame.
     """
-    offset = -standoff_dist * np.linspace(0, 1, tail_len, endpoint=False)[::-1] 
+    offset = -standoff_dist * np.linspace(0, 1, tail_len)[::-1] 
     #offset = np.append(offset, [extra_off])
     #tail_len += 1 #! It adds unpredictability to grasps
     # This could lead to collisions with the table and  
@@ -542,7 +732,8 @@ def model_based_top_down_grasp(points_base, finger_length=0.062):
         # Case1: H/2 > L           ---> ztip = z_c + (H/2 - L) {go a bit more up than center}
         # Case2: H/2 < L but H > L ---> ztip = z_c - (L - H/2) {go a bit more down than center} == z_c + (H/2 - L)
         z_tip = z_c + (height/2 - gripper_finger_length)
-    z_tip = max(z_tip, 0.745) # table height check #! Doesn't adapt to table height change
+    # TODO:? ztip += 0.005 # 5mm extra
+    z_tip = max(z_tip, 0.725) # table height check #! Doesn't adapt to table height change
     print("Z_TIP:", z_tip)
     RT[2, 3] = z_tip
     return RT, gripper_width
