@@ -9,7 +9,7 @@ import datetime
 import time
 from scipy.io import loadmat
 import imageio.v2 as imageio
-
+import tf
 import cv2
 import numpy as np
 import threading
@@ -24,7 +24,7 @@ from tf.transformations import euler_matrix, quaternion_matrix
 import tf2_ros
 
 sys.path.append("./utils/")
-from ros_utils import ros_pose_to_rt, rt_to_ros_qt, rt_to_ros_pose
+from ros_utils import ros_pose_to_rt, rt_to_ros_qt, rt_to_ros_pose, ros_qt_to_rt
 from gripper import Gripper
 from utils_control import FollowTrajectoryClient, PointHeadClient, JointListener
 from stow_or_tuck_arm import reset_arm_stow
@@ -50,6 +50,8 @@ from grasp_utils import (
     move_arm_to_dropoff,
     user_confirmation,
     convert_plan_to_trajectory_toppra,
+    lift_arm_twist,
+    lift_arm_rotate
 )
 from random import shuffle
 
@@ -292,7 +294,7 @@ def grasp(
         wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
         waypoints.append(copy.deepcopy(wpose))
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        waypoints, 0.01, True  # waypoints to follow  # eef_step
     )  # jump_threshold
     print(f"Fraction of waypoints success: {fraction}")
     if fraction < 0.9:
@@ -349,7 +351,10 @@ def grasp_with_trajectory(
     :return:
     """
 
+    input("execute?")
+
     # visualize plan
+    trajectory.header.stamp = rospy.Time.now()
     display_trajectory = moveit_msgs.msg.DisplayTrajectory()
     display_trajectory.trajectory_start = robot.get_current_state()
     robot_trajectory = moveit_msgs.msg.RobotTrajectory()
@@ -358,7 +363,6 @@ def grasp_with_trajectory(
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
 
-    input("execute?")
     # for point in trajectory.points:
     #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
     # arm_action.follow_traj(trajectory)
@@ -883,11 +887,35 @@ if __name__ == "__main__":
             # 6dof node will listen to points, sample grasps and publish a PoseArray
             print("Waiting for grasp pose array message...")
             rospy.sleep(5)
+            delta_ati = -0.028
+            tf_old_to_ati = np.eye(4)
+            tf_old_to_ati[0, 3] = delta_ati # delta for the ati sensor, negative since we need to go a bit back to match the fingertips
+            
             while True:
                 RT_grasps = grasp_listener.grasp_poses # in camera frame
                 if RT_grasps is None:
                     # rospy.loginfo("Waiting for grasp pose info")
                     continue
+                RT_wrist_to_gripper = None
+                    
+                tf_listener = tf.TransformListener()
+                while RT_wrist_to_gripper is None:
+                    try:
+                        trans, rot = tf_listener.lookupTransform(
+                            "wrist_roll_link", "gripper_link", rospy.Time(0)
+                        )
+                        rot = [-item for item in rot]
+                        RT_wrist_to_gripper = ros_qt_to_rt(rot, trans)
+                        break
+                    except (
+                        tf2_ros.LookupException,
+                        tf2_ros.ConnectivityException,
+                        tf2_ros.ExtrapolationException,
+                    ) as e:
+                        rospy.logwarn("Update failed... " + str(e))
+                for idx, grasp in enumerate(RT_grasps):
+                    grasp[:3,:3] = grasp[:3,:3] @ (np.linalg.inv(RT_wrist_to_gripper)[:3, :3])
+                    RT_grasps[idx] = grasp @ tf_old_to_ati
                 grasp_listener.save_data(step)
                 break
             if len(RT_grasps) == 0:
@@ -1061,6 +1089,27 @@ if __name__ == "__main__":
                 logger.inform(f"Step: {step} | Performing TOP-DOWN Grasping")
                 RT_grasp, gripper_width = model_free_top_down_grasp(
                                             camera_pose, mask_id, label, xyz_image)
+                
+                RT_wrist_to_gripper = None
+                    
+                tf_listener = tf.TransformListener()
+                while RT_wrist_to_gripper is None:
+                    try:
+                        trans, rot = tf_listener.lookupTransform(
+                            "wrist_roll_link", "gripper_link", rospy.Time(0)
+                        )
+                        rot = [-item for item in rot]
+                        RT_wrist_to_gripper = ros_qt_to_rt(rot, trans)
+                        break
+                    except (
+                        tf2_ros.LookupException,
+                        tf2_ros.ConnectivityException,
+                        tf2_ros.ExtrapolationException,
+                    ) as e:
+                        rospy.logwarn("Update failed... " + str(e))
+                    RT_grasp[:3,:3] = RT_grasp[:3,:3] @ (np.linalg.inv(RT_wrist_to_gripper)[:3, :3])
+                    RT_grasp = RT_grasp @ tf_old_to_ati
+
                 if gripper_width > (0.1 - 0.005):
                     logger.warning(
                         f"Step: {step} | Large Gripper Width! Grasp Center will be adjusted"
@@ -1122,6 +1171,7 @@ if __name__ == "__main__":
                 # lift_arm_joint(group, user_confirm)
                 try:
                     lift_arm_cartesian(group, RT_gripper)
+                    # lift_arm_twist(group) # hack
                 except:
                     pass
                 # ----------------------- MOVING OBJECT ------------------------#
@@ -1134,11 +1184,14 @@ if __name__ == "__main__":
                     print("Trying to move object")
                     RT_gripper = get_gripper_rt(tf_buffer)
                     try:
+                        # lift_arm_rotate(group, 0,0)
                         rotate_gripper(group, RT_gripper)
                     except:
                         pass
                     RT_gripper = get_gripper_rt(tf_buffer)
                     try:
+                        # dropoff_arm_twist(group,0.3,2, task="moveforward")
+                        # dropoff_arm_twist(group,2,2, task="moveside")
                         move_arm_to_dropoff(group, RT_gripper, x_final=0.78)
                     except:
                         pass

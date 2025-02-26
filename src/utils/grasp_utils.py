@@ -16,6 +16,16 @@ from trajectory_msgs.msg import (
     JointTrajectory, JointTrajectoryPoint,
 )
 
+# hack for controller list
+from geometry_msgs.msg import TwistStamped
+
+
+"""
+old one (0): short fingers. no torque sensor
+new one interim (1): short fingers. torque sensor
+new one complete (2): deformable fingers. torque sensor  
+"""
+GRIPPER_CONFIG = 1
 
 ################ Lifting, Standoff, Movement Utils #####################
 def rotate_gripper(group, RT_gripper):
@@ -84,7 +94,7 @@ def move_arm_to_dropoff(group, RT_gripper, x_final=0.45, y_final=0.4):
     # waypoints.append(copy.deepcopy(wpose))
 
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        waypoints, 0.01, True # waypoints to follow  # eef_step
     )  # jump_threshold
     print(f"Fraction for final dropoff movement: {fraction}")
     group.execute(plan_standoff, wait=True)
@@ -155,13 +165,378 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25):
         waypoints.append(copy.deepcopy(wpose))
     
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        waypoints, 0.01, True  # waypoints to follow  # eef_step
     )  # jump_threshold
     print(f"Fraction for lifitng movement: {fraction}")
     group.execute(plan_standoff, wait=True)
     group.stop()
     group.clear_pose_targets()
     rospy.sleep(2)  #
+
+def lift_arm_twist(group, z_offset=0.25, timeout=3):
+    """
+    Lift the arm by z_offset meters using Cartesian velocity control.
+    
+    Args:
+        group: MoveIt commander group for the arm
+        z_offset (float): Distance to lift the arm in meters (default: 0.25)
+        timeout (float): Maximum time in seconds before aborting (default: 5.0)
+    
+    Returns:
+        int: 0 on success, -1 on timeout or failure
+    """
+
+    """
+    # Velocity limits
+    max_vel_z = rospy.get_param('~max_vel_z', 0.6)  # Reduced for safety
+    
+    # Acceleration limits
+    max_acc_x = rospy.get_param('~max_acc_x', 10)  # Lowered for smoother motion
+    max_acc_y = rospy.get_param('~max_acc_y', 10)
+    max_acc_z = rospy.get_param('~max_acc_z', 10)
+    """
+
+    # State variables
+    desired = TwistStamped()
+    last = TwistStamped()
+    last.header.frame_id = "base_link"
+    
+    # ROS Publisher
+    cmd_pub = rospy.Publisher(
+        '/arm_controller/cartesian_twist/command',
+        TwistStamped,
+        queue_size=10
+    )
+
+    # Control rate (100 Hz for smooth control)
+    rate = rospy.Rate(100)
+        
+    def integrate(desired, current, max_rate, dt):
+        """Integrate with rate limiting"""
+        if desired > current:
+            return min(desired, current + max_rate * dt)
+        return max(desired, current - max_rate * dt)
+
+    # Initial setup
+    active = True
+    wpose = group.get_current_pose().pose
+    rospy.loginfo(f"Gripper Translation before lifting: {wpose.position}")
+
+    z_start = wpose.position.z
+    z_final = z_start + z_offset
+    z_current = z_start
+
+    # Only move in Z direction for lifting
+    desired.twist.linear.x = 0.0
+    desired.twist.linear.y = 0.0
+    desired.twist.linear.z = 0.05 #max_vel_z 
+    desired.twist.angular.x = 0.0
+    desired.twist.angular.y = 0.0
+    desired.twist.angular.z = 0.0
+    desired.header.frame_id = "base_link"
+
+    last.twist.angular.x = 0.0
+    last.twist.angular.y = 0.0
+    last.twist.angular.z = 0.0
+    last.header.frame_id = "base_link"
+
+    # Timeout handling
+    start_time = rospy.Time.now()
+    timeout_duration = rospy.Duration(timeout)
+    try: 
+        while z_current < z_final:
+            current_time = rospy.Time.now()
+            
+            # Check for timeout
+            if (current_time - start_time) > timeout_duration:
+                rospy.logwarn(f"Timeout ({timeout}s) reached while lifting arm. Stopping.")
+                break
+
+            # Calculate time step
+            dt = (current_time - last.header.stamp).to_sec()
+            last.header.stamp = current_time
+
+            last.twist.linear.z = integrate(
+                desired.twist.linear.z,
+                last.twist.linear.z,
+                2, #max_acc_z,
+                dt
+            )
+            
+            # Publish the command
+            cmd_pub.publish(last)
+            
+            # Update current position
+            wpose = group.get_current_pose().pose
+            z_current = wpose.position.z
+            
+            # Safety check: stop if not moving significantly
+            if abs(z_current - z_start) < 0.01 and (current_time - start_time).to_sec() > 1:
+                rospy.logwarn("Arm not moving significantly. Possible limit reached. Stopping.")
+                break
+
+            rate.sleep()
+    finally: 
+        # Stop the arm
+        last = TwistStamped()
+        last.header.frame_id = "base_link"
+        last.twist.linear.x = 0.0
+        last.twist.linear.y = 0.0
+        last.twist.linear.z = 0.0
+        last.twist.angular.x = 0.0
+        last.twist.angular.y = 0.0
+        last.twist.angular.z = 0.0
+        cmd_pub.publish(last)
+        
+    # Log final position
+    wpose = group.get_current_pose().pose
+    rospy.loginfo(f"Gripper Translation after lifting: {wpose.position}")
+
+    # stop_twist_controller(cmd_pub)
+
+    # Check if goal was reached
+    if abs(z_current - z_final) > 0.02:  # Allow 2cm tolerance
+        rospy.logwarn("Failed to reach target Z position.")
+        return -1
+   
+    return 0
+
+
+def dropoff_arm_twist(group, z_offset=0.25, timeout=3, task ="moveforward"):
+    """
+    Lift the arm by z_offset meters using Cartesian velocity control.
+    
+    Args:
+        group: MoveIt commander group for the arm
+        z_offset (float): Distance to lift the arm in meters (default: 0.25)
+        timeout (float): Maximum time in seconds before aborting (default: 5.0)
+    
+    Returns:
+        int: 0 on success, -1 on timeout or failure
+    """
+
+    """
+    # Velocity limits
+    max_vel_z = rospy.get_param('~max_vel_z', 0.6)  # Reduced for safety
+    
+    # Acceleration limits
+    max_acc_x = rospy.get_param('~max_acc_x', 10)  # Lowered for smoother motion
+    max_acc_y = rospy.get_param('~max_acc_y', 10)
+    max_acc_z = rospy.get_param('~max_acc_z', 10)
+    """
+
+    # State variables
+    desired = TwistStamped()
+    last = TwistStamped()
+    last.header.frame_id = "base_link"
+    
+    # ROS Publisher
+    cmd_pub = rospy.Publisher(
+        '/arm_controller/cartesian_twist/command',
+        TwistStamped,
+        queue_size=10
+    )
+
+    # Control rate (100 Hz for smooth control)
+    rate = rospy.Rate(100)
+        
+    def integrate(desired, current, max_rate, dt):
+        """Integrate with rate limiting"""
+        if desired > current:
+            return min(desired, current + max_rate * dt)
+        return max(desired, current - max_rate * dt)
+
+    # Initial setup
+    active = True
+    wpose = group.get_current_pose().pose
+    rospy.loginfo(f"Gripper Translation before lifting: {wpose.position}")
+
+    if task == "moveforward":
+        z_start = wpose.position.x
+        z_final = z_start + (z_offset * (abs(z_start) / z_start))
+        z_current = z_start
+
+        # Only move in Z direction for lifting
+        desired.twist.linear.x = 0.1 * (-1 if z_final < 0 else 1)
+        desired.twist.linear.y = 0.0
+        desired.twist.linear.z = 0.0 #max_vel_z 
+        desired.twist.angular.x = 0.0
+        desired.twist.angular.y = 0.0
+        desired.twist.angular.z = 0.0
+        desired.header.frame_id = "base_link"
+
+        last.twist.angular.x = 0.0
+        last.twist.angular.y = 0.0
+        last.twist.angular.z = 0.0
+        last.header.frame_id = "base_link"
+
+        # Timeout handling
+        start_time = rospy.Time.now()
+        timeout_duration = rospy.Duration(timeout)
+        try: 
+            while z_current < z_final:
+                current_time = rospy.Time.now()
+                
+                # Check for timeout
+                if (current_time - start_time) > timeout_duration:
+                    rospy.logwarn(f"Timeout ({timeout}s) reached while lifting arm. Stopping.")
+                    break
+
+                # Calculate time step
+                dt = (current_time - last.header.stamp).to_sec()
+                last.header.stamp = current_time
+
+                last.twist.linear.x = integrate(
+                    desired.twist.linear.x,
+                    last.twist.linear.x,
+                    2, #max_acc_z,
+                    dt
+                )
+                
+                # Publish the command
+                cmd_pub.publish(last)
+                
+                # Update current position
+                wpose = group.get_current_pose().pose
+                z_current = wpose.position.x
+                
+                # Safety check: stop if not moving significantly
+                if abs(z_current - z_start) < 0.01 and (current_time - start_time).to_sec() > 1:
+                    rospy.logwarn("Arm not moving significantly. Possible limit reached. Stopping.")
+                    break
+
+            rate.sleep()
+        finally: 
+            # Stop the arm
+            last = TwistStamped()
+            last.header.frame_id = "base_link"
+            last.twist.linear.x = 0.0
+            last.twist.linear.y = 0.0
+            last.twist.linear.z = 0.0
+            last.twist.angular.x = 0.0
+            last.twist.angular.y = 0.0
+            last.twist.angular.z = 0.0
+            cmd_pub.publish(last)
+    elif task == "moveside":
+        z_start = wpose.position.y
+        z_final = z_start + (z_offset * (abs(z_start) / z_start))
+        z_current = z_start
+
+        # Only move in Z direction for lifting
+        desired.twist.linear.x = 0.0
+        desired.twist.linear.y = 0.1 * (-1 if z_final < 0 else 1)
+        desired.twist.linear.z = 0.0 #max_vel_z 
+        desired.twist.angular.x = 0.0
+        desired.twist.angular.y = 0.0
+        desired.twist.angular.z = 0.0
+        desired.header.frame_id = "base_link"
+
+        last.twist.angular.x = 0.0
+        last.twist.angular.y = 0.0
+        last.twist.angular.z = 0.0
+        last.header.frame_id = "base_link"
+
+        # Timeout handling
+        start_time = rospy.Time.now()
+        timeout_duration = rospy.Duration(timeout)
+        try: 
+            while z_current < z_final:
+                current_time = rospy.Time.now()
+                
+                # Check for timeout
+                if (current_time - start_time) > timeout_duration:
+                    rospy.logwarn(f"Timeout ({timeout}s) reached while lifting arm. Stopping.")
+                    break
+
+                # Calculate time step
+                dt = (current_time - last.header.stamp).to_sec()
+                last.header.stamp = current_time
+
+                last.twist.linear.y = integrate(
+                    desired.twist.linear.y,
+                    last.twist.linear.y,
+                    2, #max_acc_z,
+                    dt
+                )
+                
+                # Publish the command
+                cmd_pub.publish(last)
+                
+                # Update current position
+                wpose = group.get_current_pose().pose
+                z_current = wpose.position.y
+                
+                # Safety check: stop if not moving significantly
+                if abs(z_current - z_start) < 0.01 and (current_time - start_time).to_sec() > 1:
+                    rospy.logwarn("Arm not moving significantly. Possible limit reached. Stopping.")
+                    break
+
+            rate.sleep()
+        finally: 
+            # Stop the arm
+            last = TwistStamped()
+            last.header.frame_id = "base_link"
+            last.twist.linear.x = 0.0
+            last.twist.linear.y = 0.0
+            last.twist.linear.z = 0.0
+            last.twist.angular.x = 0.0
+            last.twist.angular.y = 0.0
+            last.twist.angular.z = 0.0
+            cmd_pub.publish(last)
+    
+    # Log final position
+    wpose = group.get_current_pose().pose
+    rospy.loginfo(f"Gripper Translation after lifting: {wpose.position}")
+
+    # stop_twist_controller(cmd_pub)
+
+    # Check if goal was reached
+    if abs(z_current - z_final) > 0.02:  # Allow 2cm tolerance
+        rospy.logwarn("Failed to reach target Z position.")
+        return -1
+   
+    return 0
+
+def lift_arm_rotate(group, z_offset=0.25, timeout=3):
+
+    desired = TwistStamped()
+    desired.header.frame_id = "wrist_roll_link"
+ 
+    cmd_pub = rospy.Publisher(
+        '/arm_controller/cartesian_twist/command',
+        TwistStamped,
+        queue_size=10
+    )
+
+    # Control rate (100 Hz for smooth control)
+    rate = rospy.Rate(100)
+ 
+    desired.twist.linear.x = 0.0
+    desired.twist.linear.y = 0.0
+    desired.twist.linear.z = 0.0 #max_vel_z 
+    desired.twist.angular.x = 0.0
+    desired.twist.angular.y = 0.0
+    desired.twist.angular.z = np.pi/12.0
+
+    import time
+    start_time = time.time()
+    # print(f"start time {start_time}\n")
+    print(f"rotation started \n")
+    while True:
+        # print("in while loop")
+        current_time = time.time()
+        # print(f"current time {current_time}")
+        if (current_time - start_time) < 2:
+            # Publish the command
+            cmd_pub.publish(desired)   
+            rate.sleep()
+        else:
+            break
+    desired.twist.angular.z=0
+    cmd_pub.publish(desired)
+    print(f"rotation done \n")
+    
+
 
 
 def lift_arm_pose(group, confirm=True):
@@ -817,3 +1192,14 @@ def convert_plan_to_trajectory_toppra(robot, joint_names, plan, is_show=False):
         point.time_from_start = rospy.Duration.from_sec(ts_sample[i])
         trajectory.points.append(point)
     return trajectory
+
+
+if __name__=="__main__":
+    rospy.init_node("test_rotation")
+    lift_arm_rotate(0,0,0)
+    # import moveit_commander
+    
+    # moveit_commander.roscpp_initialize(sys.argv)
+    # group = moveit_commander.MoveGroupCommander("arm")
+    # # dropoff_arm_twist(group,0.2,2, task="moveforward")
+    # dropoff_arm_twist(group,0.5,3, task="moveside")

@@ -24,7 +24,7 @@ from tf.transformations import euler_matrix, quaternion_matrix
 import tf2_ros
 
 sys.path.append("./utils/")
-from ros_utils import ros_pose_to_rt, rt_to_ros_qt, rt_to_ros_pose
+from ros_utils import ros_pose_to_rt, rt_to_ros_qt, rt_to_ros_pose, ros_qt_to_rt
 from gripper import Gripper
 from utils_control import FollowTrajectoryClient, PointHeadClient, JointListener
 from stow_or_tuck_arm import reset_arm_stow
@@ -50,8 +50,10 @@ from grasp_utils import (
     move_arm_to_dropoff,
     user_confirmation,
     convert_plan_to_trajectory_toppra,
+    GRIPPER_CONFIG
 )
 from random import shuffle
+import tf
 
 # GTO planner
 import _init_paths
@@ -348,8 +350,10 @@ def execute_trajectory(
     :param RT_grasp: gripper pose for grasping
     :return:
     """
+    input("execute?")
 
     # visualize plan
+    trajectory.header.stamp = rospy.Time.now()
     display_trajectory = moveit_msgs.msg.DisplayTrajectory()
     display_trajectory.trajectory_start = robot.get_current_state()
     robot_trajectory = moveit_msgs.msg.RobotTrajectory()
@@ -358,7 +362,6 @@ def execute_trajectory(
     # Publish
     display_trajectory_publisher.publish(display_trajectory)
 
-    input("execute?")
     # for point in trajectory.points:
     #     arm_action.move_to(point.positions, duration=dt, velocities=point.velocities)
     # arm_action.follow_traj(trajectory)
@@ -612,7 +615,10 @@ if __name__ == "__main__":
             0.4,
         ]
     )  # Raise the torso using just a controller
-    head_action.look_at(0.45, 0, table_height + 0.58, "base_link")  # Look at fixed loc
+    """
+    Not required for Iteach gto
+    """
+    # head_action.look_at(0.45, 0, table_height + 0.58, "base_link")  # Look at fixed loc
 
     # image listener
     image_listener = ImageListener()
@@ -748,12 +754,47 @@ if __name__ == "__main__":
             # 6dof node will listen to points, sample grasps and publish a PoseArray
             print("Waiting for grasp pose array message...")
             rospy.sleep(5)
+            delta_ati = -0.028
+            tf_old_to_ati = np.eye(4)
+            tf_old_to_ati[0, 3] = delta_ati # delta for the ati sensor, negative since we need to go a bit back to match the fingertips
+            
             while True:
                 RT_grasps = grasp_listener.grasp_poses # in camera frame
                 if RT_grasps is None:
                     # rospy.loginfo("Waiting for grasp pose info")
                     continue
+                """
+                Transform the grasps from older fetch gripper configuration to new one interim ( as of Feb 25, 2025 exp iTeach)
+                old one (0): short fingers. no torque sensor
+                new one interim (1): short fingers. torque sensor
+                new one complete (2): deformable fingers. torque sensor  
+                """
+                if GRIPPER_CONFIG == 1:
+                    # this tf is basically the pose of new wrist roll frame in the old wrist roll frame ref
+                    RT_wrist_to_gripper = None
+                    
+
+                    tf_listener = tf.TransformListener()
+                    while RT_wrist_to_gripper is None:
+                        try:
+                            trans, rot = tf_listener.lookupTransform(
+                                "wrist_roll_link", "gripper_link", rospy.Time(0)
+                            )
+                            rot = [-item for item in rot]
+                            RT_wrist_to_gripper = ros_qt_to_rt(rot, trans)
+                            break
+                        except (
+                            tf2_ros.LookupException,
+                            tf2_ros.ConnectivityException,
+                            tf2_ros.ExtrapolationException,
+                        ) as e:
+                            rospy.logwarn("Update failed... " + str(e))
+                    for idx, grasp in enumerate(RT_grasps):
+                        grasp[:3,:3] = grasp[:3,:3] @ (np.linalg.inv(RT_wrist_to_gripper)[:3, :3])
+                        RT_grasps[idx] = grasp @ tf_old_to_ati
+                        
                 grasp_listener.save_data(step)
+
                 break
             if len(RT_grasps) == 0:
                 print("No Grasp Poses returend from Grasp Sampling algorithm")
@@ -866,6 +907,14 @@ if __name__ == "__main__":
                     q0[cfg['finger_index'], 0] = cfg['gripper_open_offsets']
 
                     q_solutions = np.zeros((gto_robot.ndof, n), dtype=np.float32)
+                    """
+                    testing gripper orn
+                    """
+                    # for j in range(n):
+                    #     RT_grasps_base[i] = np.eye(4,4) 
+                    #     # RT_grasps_base[i][:3,:3] = (np.linalg.inv(RT_wrist_to_gripper)[:3, :3])
+                    #     RT_grasps_base[i][0,3]+= 0.9
+                    #     RT_grasps_base[i][2,3]+= 1
                     for i in range(n):
                         RT = RT_grasps_base[i].copy()
                         q_solution, err_pos, err_rot, cost_collision = ik_solver.solve_ik(q0, RT, sdf_cost_obstacle, base_position)
@@ -966,7 +1015,7 @@ if __name__ == "__main__":
             input("Open Gripper??")
             gripper.open()
             rospy.sleep(1)
-            reset_arm_stow(group)
+            reset_arm_stow(group, direction="right")
             # Update Step (iteration number)
             step += 1
             if step >= 5:
