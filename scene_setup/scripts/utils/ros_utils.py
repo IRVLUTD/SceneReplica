@@ -49,6 +49,19 @@ def isaac_pose_to_rt(qt, trans):
 
     return obj_T
 
+def rt_to_isaac_pose(rt):
+    """
+    Converts a 4x4 transform to (trans, quaternion) pose
+    quaternion format is for isaac sim (w,x,y,z) i.e scalar_first
+
+    Returns:
+        quat: quaternion wxyz format
+        trans: translation
+    """
+    quat = mat2quat(rt[:3, :3])
+    trans = rt[:3, 3]
+    return quat, trans
+
 
 def ros_pose_to_rt(pose):
     qarray = [0, 0, 0, 0]
