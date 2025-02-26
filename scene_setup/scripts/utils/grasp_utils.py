@@ -116,7 +116,7 @@ def move_arm_to_dropoff(group, RT_gripper, table_height, x_final=0.45, y_final=0
     # waypoints.append(copy.deepcopy(wpose))
 
     (plan_standoff, fraction) = group.compute_cartesian_path(
-        waypoints, eef_step = 0.01, avoid_collisions = True  # waypoints to follow  # eef_step #! Stern movements
+        waypoints, 0.01, True  # waypoints to follow  # eef_step #! Stern movements
     )  # jump_threshold
     # Moves to front
     print(f"Fraction for final dropoff movement: {fraction}")
@@ -203,7 +203,7 @@ def lift_arm_cartesian(group, RT_gripper, z_offset=0.25, avoid_collisions=True, 
         waypoints.append(copy.deepcopy(wpose))
     
     (plan_standoff, fraction) = group.compute_cartesian_path( 
-        waypoints= waypoints, eef_step = 0.01, avoid_collisions=True # waypoints to follow  # eef_step
+        waypoints, 0.01, True # waypoints to follow  # eef_step
     )  # avoid_collision instead of jump_threshold
     print(f"Fraction for lifitng movement: {fraction}")
 
@@ -1071,7 +1071,7 @@ def sort_grasps(RT_obj, RT_gripper, RT_grasps):
     return RT_grasps_base, index
 
 
-def sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, table_height: float):
+def sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, table_height: float, threshold=0.01):
     """
     Transforms RT_grasps (grasps) in RT_obj frame to robot base frame
     as RT_obj is in base frame. RT_obj => pose of frame (in base link) for which
@@ -1089,7 +1089,7 @@ def sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, table_height: float):
         # transform grasp to robot base
         RT = RT_obj @ RT_g 
         trans = RT[:3, 3]
-        if trans[-1] > (table_height + 0.02):  # 2cm offset above table surface #! Doesn't filter all colliding grasps
+        if trans[-1] > (table_height + threshold):  # offset above table surface #! Doesn't filter all colliding grasps
             RT_grasps_base.append(RT)
             d = np.linalg.norm(RT_gripper[:3, 3] - RT[:3, 3])
             distances.append(d)
