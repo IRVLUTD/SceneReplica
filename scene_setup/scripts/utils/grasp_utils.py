@@ -1015,10 +1015,15 @@ def parse_grasps_isaac(filename):
     with open(filename, "r") as f:
         data = json.load(f)
     grasps = data["pose"]
-    result_time = data["result_time"]
-    max_time = data["test_duration"]
-
     n = len(grasps)
+
+    try:
+        result_time = data["result_time"]
+        max_time = data["test_duration"]
+    except KeyError:
+        result_time = [3] * n
+        max_time = 3
+
     poses_grasp = np.zeros((n, 4, 4), dtype=np.float32)
     for i in range(n):
         pose = grasps[i]
@@ -1067,7 +1072,11 @@ def sort_grasps(RT_obj, RT_gripper, RT_grasps):
 
 
 def sort_and_filter_grasps(RT_obj, RT_gripper, RT_grasps, table_height: float):
-    # translate all RT graspits grasps using the object mean #! 
+    """
+    Transforms RT_grasps (grasps) in RT_obj frame to robot base frame
+    as RT_obj is in base frame. RT_obj => pose of frame (in base link) for which
+    the RT_grasps were stored in ... (e.g. object frame, camera frame etc.) 
+    """
     # transform grasps to robot base
     n = RT_grasps.shape[0]
     # RT_grasps_base = np.zeros_like(RT_grasps)
