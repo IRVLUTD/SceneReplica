@@ -8,7 +8,7 @@
   <arg name="scene_dir" default="final_scenes" doc="Path to scene data directory" />
   <arg name="sgrasp_file" default="sgrasps.pk" doc="Path to successful grasp pickle file" />
   <arg name="table_height" default="0.74" doc="Table height for point cloud filtering" />
-  <arg name="rviz_config" default="$(find scene_setup)/config/scene_performance.rviz" doc="RViz configuration file" />
+  <arg name="rviz_config" default="$(find scene_setup)/config/rfp_humandemo_grasp.rviz" doc="RViz configuration file" />
 
   <!-- Launch RViz with output silenced -->
   <node name="rviz_hdemo" pkg="rviz" type="rviz" output="log" 
