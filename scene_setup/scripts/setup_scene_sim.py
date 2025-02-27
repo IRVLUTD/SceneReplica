@@ -70,15 +70,16 @@ def main(args):
     scenes_list_f = os.path.join(data_dir, scene_dir, "scene_ids.txt")
     with open(scenes_list_f, "r") as f:
         sel_scene_ids = [int(x) for x in f.read().split()]
-
+    str_scene_ids = [str(sid) for sid in sel_scene_ids]
+    sel_scene_ids += str_scene_ids
     while True:
         # for scene_id in sel_scene_ids:
         scene_id = input("Please provide the scene id: ")
-        scene_id = int(scene_id)
         if scene_id not in sel_scene_ids:
             print("Provided scene id not in the list of selected scene ids")
             print(f"Valid ids: {sel_scene_ids}")
             continue
+        scene_id = int(scene_id)
         print(f"-----------Scene:{scene_id}---------------")
         scene_file = os.path.join(scenes_path, f"scene_id_{scene_id}.pk")
         if not os.path.exists(scene_file):
@@ -102,12 +103,14 @@ def main(args):
         objects_in_scene = [obj for obj in scene.keys()]
         print(objects_in_scene)
 
-        confirmation = input("Next scene? y or n.....")
+        confirmation = None
+        while confirmation not in {"y", "n"}:
+            confirmation = input("Next scene? y or n.....").lower()
         for obj in scene:
             objs.delete_object(obj)
         if confirmation == "y":
             continue
-        else:
+        elif confirmation == "n":
             break
     # Deleting cafe table
     objs.delete_object("cafe_table_org")
