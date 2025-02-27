@@ -5,7 +5,7 @@
 - Differences: 
   - To use the rviz image layover for the scenes you can run the rviz.launch with:
    ```Shell
-   roslaunch scene_setup rviz.launch index:=68
+   roslaunch scene_setup scene_overlay_rviz.launch index:=68
    ``` 
    - Gazebo can now load any robot urdf the user would like with (we have 'fetch' for regular fingers and "fetch_UMI" for UMI fingers):
    ```Shell
