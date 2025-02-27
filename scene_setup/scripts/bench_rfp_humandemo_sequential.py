@@ -170,7 +170,6 @@ def plan_grasp(
             print("no plan for grasp %d with index %d" % (idx, grasp_index[idx]))
             print(RT_grasp)
         
-        input("next grasp plan?")
 
     if not flag_plan:
         print("no plan found in plan_grasp()")
@@ -330,7 +329,7 @@ def grasp_with_rt(
     rospy.sleep(2)
 
 # Implementation of different get pose methods
-@lru_cache(max_size=None)
+@lru_cache(maxsize=None)
 def get_pose(object_name: str, pose_method: str):
     """
     Calls the suitable function depending on pose method
@@ -764,14 +763,17 @@ if __name__ == "__main__":
 
     # for obj_i, object_to_grasp in enumerate(object_order): # For every object in the scene
     for grasp_idx in range(num_available_grasps):
-        # for the current i
+        log_message = f"---------------Starting grasping for grasp idx {grasp_idx}---------------"
+        logger.inform(log_message)
+        print(f"\n{log_message}")
+
         RT_grasps = RT_grasps_all[None, grasp_idx] # Basically give the current grasp as (1, 4, 4) matrix to sort/filter
         grasp_num, trajectory_standoff, trajectory_final = None, None, None
         gripper.open()        
 
         RT_gripper = get_gripper_rt(tf_buffer) # gets pose RT of end effector frame (make frame name input to script)
         RT_cam = get_tf_pose(target_frame='head_camera_rgb_optical_frame', base_frame='base_link')
-        print("RT_gripper, RT_cam\n", RT_gripper, RT_cam)
+        # print("RT_gripper, RT_cam\n", RT_gripper, RT_cam)
 
         # Filter and sort grasps...note here we pass RT_cam as the first arg
         RT_grasps_base, grasp_index, pruned_ratio = sort_and_filter_grasps(
@@ -780,10 +782,10 @@ if __name__ == "__main__":
             RT_grasps,
             table_height
         )
-        print(f"grasp index {grasp_index}, object to grasp {object_to_grasp}")
+        print(f"Grasp idx: {grasp_idx} | grasp index {grasp_index}, object to grasp {object_to_grasp}")
 
         if (grasp_index is None ): #! If no grasp is possible
-            log_message = "Grasp index is none ... all grasp filtered out even before planning! Trying next grasp...."
+            log_message = f"Grasp idx: {grasp_idx} | Grasp filtered out even before planning! Trying next grasp...."
             logger.error(log_message)
             print(log_message)
             continue
@@ -803,7 +805,7 @@ if __name__ == "__main__":
         
         # Exit code for plan_grasp(): Returning an exit code to catch it here so that we can still continue on to the next trial
         if (grasp_num == -1 or (not trajectory_standoff) or (not trajectory_final)): 
-            log_message = "No motion plans found for direct grasping, trying next grasp!" 
+            log_message = f"Grasp idx: {grasp_idx} | No motion plans found for direct grasping at grasp idx {grasp_idx}, trying next grasp!" 
             print(log_message)
             logger.warning(log_message)
             continue
@@ -906,5 +908,7 @@ if __name__ == "__main__":
             if x == "n":
                 sys.exit(1)
             
-        
-        
+    log_message = '\n-------------DONE with Experiment -------------\n'
+    logger.inform(log_message)
+    print(log_message)
+
