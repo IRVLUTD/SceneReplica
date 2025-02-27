@@ -1,0 +1,910 @@
+#!/usr/bin/env python
+import sys, os
+import numpy as np
+import copy
+import argparse
+import datetime
+
+from scipy.io import loadmat
+import rospy
+import rospkg
+import moveit_commander #! Needs to be the Noetic version, else need to specify jump_threshold in the compute_cartesian_path
+import geometry_msgs.msg
+import moveit_msgs.msg
+import tf2_ros
+from tf.transformations import quaternion_matrix
+from geometry_msgs.msg import PoseStamped, WrenchStamped
+import threading
+from functools import lru_cache
+
+st_path = rospkg.RosPack().get_path("scene_setup")
+sys.path.append(os.path.join(st_path,"scripts/utils/"))
+#Changed to utils. since it lets me see the inputs comments. Easily reversible with above line
+
+from utils.ros_utils import ros_pose_to_rt, rt_to_ros_qt, rt_to_ros_pose
+from utils.stow_or_tuck_arm import reset_arm_stow
+from utils.gripper import Gripper
+from utils.grasp_utils import (
+    get_object_name,
+    parse_grasps,
+    sort_grasps,
+    sort_and_filter_grasps,
+    model_based_top_down_grasp,
+    get_object_verts,
+    get_standoff_wp_poses,
+    lift_arm_cartesian,
+    lift_arm_joint,
+    lift_arm_pose,
+    move_arm_to_dropoff,
+    rotate_gripper,
+    rotate_gripper_twist,
+    lift_arm_twist,
+    user_confirmation,
+    parse_grasps_isaac,
+    # parse_grasps_hdemo,
+    isaac_sort_and_filter_grasps,
+)
+from utils.utils_control import FollowTrajectoryClient, PointHeadClient
+from utils.utils_scene import load_scene, read_pickle_file, write_pickle_file
+from utils.image_listener import ImageListener
+from moveit_msgs.msg import Constraints
+from utils.utils_log import get_custom_logger
+from transforms3d.quaternions import mat2quat, quat2mat
+
+import utils.constants as constants
+
+HDEMO_STANDOFF_DIST = constants.HDEMO_STANDOFF_DIST
+
+def get_tf_pose(target_frame, base_frame=None, is_matrix=False):
+    try:
+        transform = tf_buffer.lookup_transform(
+            base_frame, target_frame, rospy.Time.now(), rospy.Duration(1.0)
+        ).transform
+        quat = [
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
+        ]
+        RT_obj = quaternion_matrix(quat)
+        RT_obj[:3, 3] = np.array(
+            [transform.translation.x, transform.translation.y, transform.translation.z]
+        )
+    except (
+        tf2_ros.LookupException,
+        tf2_ros.ConnectivityException,
+        tf2_ros.ExtrapolationException,
+    ):
+        RT_obj = None
+    return RT_obj
+
+
+def plan_grasp(
+    group,
+    scene,
+    display_trajectory_publisher,
+    RT_grasps_base,
+    grasp_index,
+    obj_name,
+    RT_obj,
+    models_path,
+    successful_grasps,
+):
+    """
+    A method the included the actions of pushing and sweeping according to direction.
+    It first set its arm to the left/right of the given location, then sweeps to the left/right of the cube to achieve
+    the pushing motion
+    :param group: the moveit group of joints
+    :param display_trajectory_publisher: for visualization of the planned trajectory
+    :param RT_grasp: gripper pose for grasping
+    :return:
+    """
+    n = RT_grasps_base.shape[0]
+    pose_standoff = get_standoff_wp_poses(standoff_dist=HDEMO_STANDOFF_DIST, tail_len=4) #! Set of positions towards the object 10 per grasp
+    flag_plan = False
+    
+    
+    # Check each grasp in the provided order
+    for idx in range(n): 
+        RT_grasp = RT_grasps_base[idx]
+
+        print(f"{idx}: Planning for {obj_name} with grasp_idx {grasp_index[idx]}")
+        # print(RT_grasp)
+        standoff_grasp_global = np.matmul(RT_grasp, pose_standoff) 
+
+        # Calling `stop()` ensures that there is no residual movement
+        group.stop()
+
+        # It is always good to clear your targets after planning with poses.
+        # Note: there is no equivalent function for clear_joint_value_targets()
+        group.clear_pose_targets()
+
+        # plan to the standoff
+        init_standoff = standoff_grasp_global[0, :, :]
+        trans = init_standoff[:3,3]
+        quat = mat2quat(init_standoff[:3,:3]) # wxyz formt
+        pose_goal = geometry_msgs.msg.Pose()
+        pose_goal.orientation.w = quat[0]
+        pose_goal.orientation.x = quat[1]
+        pose_goal.orientation.y = quat[2]
+        pose_goal.orientation.z = quat[3]
+        pose_goal.position.x = trans[0]
+        pose_goal.position.y = trans[1]
+        pose_goal.position.z = trans[2]
+        group.set_pose_target(pose_goal)
+        plan = group.plan()
+        trajectory = plan[1]
+        input("found?")
+
+        if plan[0]:
+            print("found a plan for grasp")
+            flag_plan = True
+            
+            # Test for waypoints to final grasp pose
+            scene.remove_world_object(obj_name) 
+            waypoints = []
+            wpose = group.get_current_pose().pose
+            for i in range(1, standoff_grasp_global.shape[0]):
+                wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
+                waypoints.append(copy.deepcopy(wpose))
+
+            print("qwerty")
+
+            (plan_standoff, fraction) = group.compute_cartesian_path( # when used in ROS Melodic the jump_threshold should be specified.
+                waypoints, 0.01, True  # waypoints to follow  # eef_step
+            )  
+            obj_mesh_path = os.path.join(
+                models_path, obj_name, "textured_simple.obj"
+            )
+            p = PoseStamped()
+            p.pose = rt_to_ros_pose(p.pose, RT_obj)
+            p.header.frame_id = group.get_planning_frame()  # Typically "base_link" #! If not added it won't add the object boundary back to scene
+            scene.add_mesh(obj_name, p, obj_mesh_path)
+
+            print(f"Gidx {idx} fraction: {fraction}")
+            if fraction >= 0.05: # If it is atleast 3 mm close to target
+                print("Found FULL PLAN!")
+                return RT_grasp, idx, trajectory, plan_standoff
+                
+        else:
+            print("no plan for grasp %d with index %d" % (idx, grasp_index[idx]))
+            print(RT_grasp)
+        
+        input("next grasp plan?")
+
+    if not flag_plan:
+        print("no plan found in plan_grasp()")
+        
+    return None, -1, None, None
+
+
+def grasp_with_rt(
+    gripper, group, scene, object_name, display_trajectory_publisher, RT_grasp
+):
+    """
+    A method the included the actions of pushing and sweeping according to direction.
+    It first set its arm to the left/right of the given location, then sweeps to the left/right of the cube to achieve
+    the pushing motion
+    :param group: the moveit group of joints
+    :param display_trajectory_publisher: for visualization of the planned trajectory
+    :param RT_grasp: gripper pose for grasping
+    :return:
+    """
+    # Initialize force sensor variables
+    force_readings = []
+    current_force = np.zeros(3) 
+    force_monitor_active = threading.Event()  # To control thread termination
+    
+    def force_callback(msg):
+        nonlocal current_force, force_readings
+        # Extract force magnitude from WrenchStamped message
+        force = np.array((msg.wrench.force.x, msg.wrench.force.y, msg.wrench.force.z))
+        current_force = force
+        if len(force_readings) < 10:
+            force_readings.append(force)
+    
+
+    # pose_standoff = get_standoff_wp_poses()
+    pose_standoff = get_standoff_wp_poses(standoff_dist=HDEMO_STANDOFF_DIST, tail_len=4)
+    standoff_grasp_global = np.matmul(RT_grasp, pose_standoff)
+    # Calling `stop()` ensures that there is no residual movement
+    group.stop()
+    # It is always good to clear your targets after planning with poses.
+    # Note: there is no equivalent function for clear_joint_value_targets()
+    group.clear_pose_targets()
+    # plan to the standoff
+    quat, trans = rt_to_ros_qt(standoff_grasp_global[0, :, :])  # xyzw for quat
+    pose_goal = geometry_msgs.msg.Pose()
+    pose_goal.orientation.w = quat[3]
+    pose_goal.orientation.x = quat[0]
+    pose_goal.orientation.y = quat[1]
+    pose_goal.orientation.z = quat[2]
+    pose_goal.position.x = trans[0]
+    pose_goal.position.y = trans[1]
+    pose_goal.position.z = trans[2]
+    group.set_pose_target(pose_goal)
+    plan = group.plan()
+    trajectory = plan[1]
+    if not plan[0]:
+        print("no plan found in grasp()")
+        # sys.exit()
+        return
+
+    # visualize plan
+    display_trajectory = moveit_msgs.msg.DisplayTrajectory()
+    display_trajectory.trajectory_start = robot.get_current_state()
+    display_trajectory.trajectory.append(trajectory)
+
+    # Publish
+    display_trajectory_publisher.publish(display_trajectory)
+
+    input("Execute Trajectory towards standoff?")
+    group.execute(trajectory, wait=True)
+    group.stop()
+    group.clear_pose_targets()
+
+    # scene.remove_world_object(object_name) # Remove object from planning scene
+
+    # waypoints = []
+    # wpose = group.get_current_pose().pose
+    # for i in range(1, standoff_grasp_global.shape[0]):
+    #     wpose = rt_to_ros_pose(wpose, standoff_grasp_global[i])
+    #     waypoints.append(copy.deepcopy(wpose))
+    # (plan_standoff, fraction) = group.compute_cartesian_path(
+    #     waypoints, 0.01, True  # waypoints to follow  # eef_step
+    # )  
+    
+    # #print(plan_standoff)
+    # print(f"{object_name}: FRACTION: {fraction}")
+    # trajectory = plan_standoff
+
+    # # visualize plan
+    # display_trajectory = moveit_msgs.msg.DisplayTrajectory()
+    # display_trajectory.trajectory_start = robot.get_current_state()
+    # display_trajectory.trajectory.append(trajectory)
+    # # Publish
+    # display_trajectory_publisher.publish(display_trajectory)
+
+
+    ### ----------- Force Sensing -------------- ###
+    # Start force subscriber
+    force_sub = rospy.Subscriber('/gripper/ft_sensor', WrenchStamped, force_callback)
+
+    force_mean = np.zeros(3)
+    print("Collecting baseline force readings...")
+    for i in range(20):
+        if len(force_readings) >= 10:
+            force_mean = np.mean(force_readings, axis = 0)
+            print("Mean Force = ", force_mean)
+            break
+        rospy.sleep(0.1)  # Wait for 10 readings at 100ms intervals
+    
+    if len(force_readings) < 10:
+        print("Failed to get sufficient force readings")
+        force_sub.unregister()
+        print("No Force Protection being used!")
+
+    # Define force monitoring thread
+    def monitor_force():
+        rate = rospy.Rate(300)  # 300 Hz
+        while force_monitor_active.is_set() and not rospy.is_shutdown():
+            force_diff = current_force - force_mean
+            force_diff_magnitude = np.linalg.norm(force_diff)  # Magnitude of difference vector
+            force_threshold = 10.0
+            if force_diff_magnitude > force_threshold:  # Check if force difference exceeds 5N
+                print(f"Force difference limit exceeded: {force_diff_magnitude:.2f} N > {force_threshold} N")
+                print(f"Current force: [{current_force[0]:.2f}, {current_force[1]:.2f}, {current_force[2]:.2f}] N")
+                group.stop()
+                #force_monitor_active.clear()  # Stop monitoring
+                #break
+            rate.sleep()
+
+    # Force protection
+    # Start force monitoring thread
+    force_monitor_active.set()  # Activate monitoring
+    force_thread = threading.Thread(target=monitor_force, name="force_monitor")
+    force_thread.daemon = True  # Thread will terminate when main thread exits
+    force_thread.start()
+    
+    ### ----------- Force Sensing -------------- ###
+
+    input("Execute Grasp?")
+
+    # success = group.execute(trajectory, wait=True) 
+    # if success:
+    #     print("Grasp trajectory completed")
+    # else:
+    #     print("Grasp trajectory interrupted by Force Sensing")
+   
+    # Stop force monitoring thread
+    force_monitor_active.clear()
+    force_thread.join(timeout=1.0)  # Give it a second to finish
+
+    group.stop()
+    group.clear_pose_targets()
+    force_sub.unregister()
+
+    # close gripper
+    print("Closing Gripper")
+    gripper.close()
+    rospy.sleep(2)
+
+# Implementation of different get pose methods
+@lru_cache(max_size=None)
+def get_pose(object_name: str, pose_method: str):
+    """
+    Calls the suitable function depending on pose method
+    
+    Input:
+    - object_name (str) : name of the object mode, e.g '003_cracker_box'
+    - pose_method (str) : name of the model based pose method, e.g. 'poserbpf'
+        - options : {'gazebo', 'posecnn', 'poserbpf'}
+    
+    Returns:
+    - RT_object (4,4 np.ndarray) : 4x4 transform of the object in robot's base_link frame
+    """
+    if pose_method == "gazebo":
+        return get_pose_gazebo(object_name)
+    elif pose_method == "isaac":
+        return get_pose_isaac(object_name)    
+    elif pose_method == "posecnn":
+        return get_pose_posecnn(object_name)
+    elif pose_method == "poserbpf":
+        return get_pose_poserbpf(object_name)
+    elif pose_method == "gdrnpp":
+        return get_pose_gdrnpp(object_name)
+    else:
+        print(f"[ERROR] incorrect pose method provided : {pose_method}. Will return None!")
+        return None
+
+
+def get_pose_gdrnpp(object_name: str):
+    """
+    Queries the GDRNPP topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "gdrnpp/00_cracker_box_01_roi"
+    # NOTE: The object name appears without the ycbid, "cracker_box" instead of "003_cracker_box"
+    gdrnpp_topic_name = f"gdrnpp/00_{object_name[4:]}_01_roi"
+    RT_obj = get_tf_pose(gdrnpp_topic_name, 'base_link')
+    return RT_obj
+
+def get_pose_posecnn(object_name: str):
+    """
+    Queries the PoseCNN topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "posecnn/00_cracker_box_01_refined"
+    # NOTE: The object name appears without the ycbid, "cracker_box" instead of "003_cracker_box"
+    posecnn_topic_name = f"posecnn/00_{object_name[4:]}_01_refined"
+    RT_obj = get_tf_pose(posecnn_topic_name, 'base_link')
+    return RT_obj
+
+def get_pose_gazebo(model_name, relative_entity_name=""):
+    import roslib
+
+    roslib.load_manifest("gazebo_msgs")
+    from gazebo_msgs.srv import GetModelState
+
+    def gms_client(model_name, relative_entity_name):
+        rospy.wait_for_service("/gazebo/get_model_state")
+        try:
+            gms = rospy.ServiceProxy("/gazebo/get_model_state", GetModelState)
+            resp1 = gms(model_name, relative_entity_name)
+            return resp1
+        except (rospy.ServiceException, e):
+            print("Service call failed: %s" % e)
+
+    res = gms_client(model_name, relative_entity_name)
+    RT_obj = ros_pose_to_rt(res.pose)
+
+    # query fetch base line
+    res = gms_client(model_name="fetch", relative_entity_name="base_link")
+    RT_base = ros_pose_to_rt(res.pose)
+
+    # object pose in robot base
+    RT = np.matmul(np.linalg.inv(RT_base), RT_obj)
+    if np.allclose(RT, np.eye(4)):
+        return None
+    return RT
+
+def get_pose_poserbpf(object_name: str):
+    """
+    Queries the PoseRBPF topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "poserbpf/00_003_cracker_box_00"
+    poserbpf_topic_name = f"poserbpf/00_{object_name}_00"  # f"00_{object_name}_raw"
+    RT_obj = get_tf_pose(poserbpf_topic_name, "base_link")
+    return RT_obj
+
+def get_pose_isaac(object_name: str):
+    """
+    Queries the Isaac Sim object topic for the given YCB `object_name` and returns
+    a 4x4 transform for its pose
+    """
+    # Example: "object_003_cracker_box_base_link"
+    isaac_topic_name = f"object_{object_name}_base_link"
+    RT_obj = get_tf_pose(isaac_topic_name, "base_link")
+    return RT_obj
+
+def get_gripper_rt(tf_buffer): 
+    transform = tf_buffer.lookup_transform(
+        "base_link", "finger_tip_link", rospy.Time.now(), rospy.Duration(1.0)
+    ).transform #! Could generalize to other robots by setting ("Finger_tip_link") as input, also should do for base_link
+    quat = [
+        transform.rotation.x,
+        transform.rotation.y,
+        transform.rotation.z,
+        transform.rotation.w,
+    ]
+    RT_gripper = quaternion_matrix(quat)
+    RT_gripper[:3, 3] = np.array(
+        [transform.translation.x, transform.translation.y, transform.translation.z]
+    )
+    return RT_gripper
+
+def setup_moveit_scene(
+    scene,
+    table_height,
+    object_names,
+    models_path,
+    pose_method,
+    gt_metadata,
+    gt_file_path,
+    table_position=(0.8, 0, 0)
+):
+    """
+    Sets the Motion Planning scene for MoveIt!
+
+    Adds table, robot base and objects to the planning scene
+    """
+    # Clear Planning Scene
+    scene.clear()
+    rospy.sleep(1)
+    scene.remove_world_object()
+    rospy.sleep(1)
+
+    # # sleep before adding objects
+    # # dimension of each default(1,1,1) box is 1x1x1m
+    # -------- planning scene set-up -------
+    rospy.loginfo("adding table object into planning scene")
+    print("adding table object into planning scene")
+    rospy.sleep(1.0)
+    p = PoseStamped()
+    p.header.frame_id = robot.get_planning_frame()
+    p.pose.position.x = table_position[0]
+    p.pose.position.y = 0
+    p.pose.position.z = table_height - 0.5  # 0.5 = half length of moveit obstacle box
+    scene.add_box("table", p, (1, 2, 1))
+    # add a box for robot base
+    p.pose.position.x = 0
+    p.pose.position.y = 0
+    p.pose.position.z = 0.18
+    scene.add_box("base", p, (0.56, 0.56, 0.4))
+
+    for obj_name in object_names:
+        RT_obj = get_pose(obj_name, pose_method)
+        gt_metadata["estimated_poses"][obj_name] = RT_obj
+        if RT_obj is not None:
+            p.pose = rt_to_ros_pose(p.pose, RT_obj)
+            obj_mesh_path = os.path.join(models_path, obj_name, "textured_simple.obj")
+            if not os.path.exists(obj_mesh_path):
+                print(f"Given mesh path does not exist! {obj_mesh_path}")
+            scene.add_mesh(obj_name, p, obj_mesh_path)
+        else:
+            print(f"Not adding {obj_name} to planning scene! (pose not found)")
+    write_pickle_file(gt_metadata, gt_file_path)
+
+def make_args():
+    parser = argparse.ArgumentParser(
+        description="Process the args like refine_pose, threshold, ycbid"
+    )
+
+    parser.add_argument(
+        "-s",
+        "--scene_idx",
+        type=int,
+        required=True,
+        help="ID for the scene under evaluation",
+    )
+
+    parser.add_argument(
+        "--pose_method",
+        type=str,
+        required=True,
+        help='Specify the object pose estimation method: "gazebo", "poserbpf", "posecnn", "isaac"',
+    )
+
+    parser.add_argument(
+        "--obj_order",
+        type=str,
+        required=True,
+        help='Order to grasp object. Choose from {"nearest_first", "random"}',
+    )
+
+    parser.add_argument(
+        "--grasp_dir",
+        type=str,
+        required=True,
+        help="directory for scene and object specific grasp json for the human demo"
+    )
+
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default=os.path.join(st_path,"datasets/benchmarking/"),
+        help="Path to parent of model dataset, grasp and scenes dir",
+    )
+
+    parser.add_argument(
+        "--scene_dir",
+        type=str,
+        default="final_scenes", 
+        help="Path to data dir",
+    )
+    parser.add_argument(
+        "-sg",
+        "--sgrasp_file",
+        default="sgrasps.pk",
+        help="path to successful grasp pkl file",
+    )
+
+    parser.add_argument( #! Could be calculated from depth camera
+        "--table_height",
+        type=float,
+        default=0.74,
+        help="table height based on which the object point cloud will be filtered (along Z-dim",
+    )
+
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == "__main__":
+    VALID_POSE_METHODS = constants.VALID_POSE_METHODS
+
+    # Filter Ros Args
+    ros_args = [arg for arg in sys.argv if arg.startswith('__')]
+    clean_argv = [arg for arg in sys.argv if not arg.startswith('__')]
+
+    # Temporarily replace sys.argv to exclude ROS arguments
+    sys.argv = clean_argv
+    args = make_args()
+    table_height = args.table_height
+    pose_method = args.pose_method
+    scene_idx = args.scene_idx
+    ordering = args.obj_order
+    grasp_dir_path = args.grasp_dir
+    # Data dir to hold the logs and results for experiments
+    exp_root_dir = os.path.join( 
+        st_path, "datasets", "experiments", "bench_pose" #! Changed to be the same datasets folder for simplicity
+    ) 
+
+    # hyper-params: create a dir name with this and timestamp
+    # seg_method, scene_id, order
+    curr_time = datetime.datetime.now()
+    exp_time = "{:%y-%m-%d_T%H%M%S}".format(curr_time)
+    exp_args = f"rfp_humandemo_{grasp_dir_path}_scene-{scene_idx}_ord-{ordering}" #! Not runnable in robot (I imagine ros master is used outside robot)
+    exp_dir = os.path.join(exp_root_dir, exp_time + "_" + exp_args) 
+
+    if not os.path.exists(exp_dir):
+        os.makedirs(exp_dir, exist_ok=True)
+        print(f"directory created")
+
+    logger = get_custom_logger(os.path.join(exp_dir, str(curr_time)+".log"))
+
+    logger.inform(f"scene_id:{args.scene_idx}")
+    logger.inform(f"pose_method:{args.pose_method}")
+    logger.inform(f"ordering:{args.obj_order}")
+    logger.inform(f"table_height:{args.table_height}")
+
+    if ordering not in {"nearest_first", "random"}:
+        logger.error("Incorrect option for object ordering. See help!")
+        sys.exit(0)
+
+    #! Reading previously computed data
+    model_dir = os.path.join(args.data_dir, "models")
+    scene_dir = os.path.join(args.data_dir, args.scene_dir)
+    #grasp_order_f = os.path.join(scene_dir, args.sgrasp_file)
+    experiment_data_file = os.path.join(exp_dir, "exp_data.pk")
+
+    # Read the ordering over graspit grasp for all objects in scene
+    #success_grasp_info = read_pickle_file(grasp_order_f) #! Information about successful grasps
+
+    # grasp_dir = os.path.join(args.data_dir, "grasp_data", "grasps") #! Static grasp source
+    grasp_dir = os.path.join(args.data_dir, "grasp_data", grasp_dir_path)
+    # For human demo scenes, the input is "humandemo/s10_004" -- something like that!
+    scene_obj_ids = grasp_dir.split("/")[-1].split("_")
+    sid = scene_obj_ids[0]
+    oid = scene_obj_ids[1]
+    print("Scene - Object", sid, oid)
+
+    # Read in metadata for correct object order to grasp
+    meta_f = "meta-%06d.mat" % scene_idx
+    meta = loadmat(os.path.join(scene_dir, "metadata", meta_f))
+    objects_in_scene = [obj.strip() for obj in meta["object_names"]]
+    
+    # List of objects arranged in order to grasp
+    # object_order = meta[ordering]
+    object_order = meta[ordering][0].split(",")
+    print(object_order)
+    print(objects_in_scene)
+    #! nearest to far info is processed offline? what if I place the robot in another position? A static robot. Must I reprocess everything? 
+    #! If the order is intended to be fixed then name "nearest to farthest" may be ambiguous: Should be in REadme
+
+    # assert set(object_order) == set(objects_in_scene)
+    print(f"Grasping in following order: {object_order}")
+    if pose_method not in VALID_POSE_METHODS:
+        print(
+            f"Incorrect Pose method specified: {args.pose_method}. Should be either: gazebo, isaac, poserbpf or posecnn"
+        )
+        exit(0)
+    
+
+    # Initialize experiment data 
+    experiment_data = {}
+    experiment_data["metadata"] = {"scene_id":args.scene_idx, "pose_method": args.pose_method, "ordering": args.obj_order, "table_height": args.table_height}
+    experiment_data["estimated_poses"] = {objectname: None for objectname in object_order}
+
+    gt_experiment_data = {}
+    gt_experiment_data["metadata"] = {"scene_id":args.scene_idx, "pose_method": args.pose_method, "ordering": args.obj_order, "table_height": args.table_height}
+    gt_experiment_data["estimated_poses"] = {objectname: None for objectname in object_order}
+
+    
+    import logging 
+    root_handlers = logging.root.handlers[:]
+
+
+    # ----------------------------- ROSPY Stuff--------------------------------#
+    # Create a node
+    rospy.init_node("ramp_grasping")
+    logging.root.handlers = root_handlers
+    logger.setLevel(200)
+
+    # Create buffer
+    tf_buffer = tf2_ros.Buffer(rospy.Duration(100.0))  # tf buffer length
+    tf_listener = tf2_ros.TransformListener(tf_buffer) #! tf_buffer is used on functions without giving it explicitly to the function (get_tf_pose)
+    image_listener = ImageListener()
+
+    # Setup clients
+    torso_action = FollowTrajectoryClient("torso_controller", ["torso_lift_joint"])
+
+    # Raise the torso using just a controller
+    rospy.loginfo("Raising torso...")
+    torso_action.move_to(
+        [
+            0.4,
+        ]
+    )
+    rospy.loginfo("Raising torso...done")
+
+    # Move robot head to look at table
+    head_action = PointHeadClient()
+    rospy.loginfo("Pointing head...")
+    if head_action.success:
+        head_action.look_at(0.45, 0, table_height, "base_link")
+    else:
+        head_action = FollowTrajectoryClient("head_controller", ["head_pan_joint", "head_tilt_joint"])
+        head_action.move_to([0.009195, 0.908270])
+    rospy.loginfo("Pointing head...done")
+
+
+    # --------------------------- initialize moveit components ----------------#
+    moveit_commander.roscpp_initialize(sys.argv)
+    group = moveit_commander.MoveGroupCommander("arm")
+    group.set_max_velocity_scaling_factor(0.6) #! 1 may be too fast refine towards safe movement
+    # group.set_max_acceleration_scaling_factor(1.0)
+    group.set_end_effector_link("finger_tip_link") # Could be set as input to script
+    group_grp = moveit_commander.MoveGroupCommander("gripper")
+    scene = moveit_commander.PlanningSceneInterface()
+    scene.remove_world_object()
+    robot = moveit_commander.RobotCommander()
+    display_trajectory_publisher = rospy.Publisher(
+        "/move_group/display_planned_path",
+        moveit_msgs.msg.DisplayTrajectory, #! Launch a rviz window to visualize this
+        queue_size=20,
+    )
+    gripper = Gripper(group_grp)
+
+    # ---------------------------- initialize moveit components ---------------#
+    # Place arm in init position
+    print("Placing arm in initial stow position.")
+    p = PoseStamped()
+    table_position=(0.8, 0, 0)
+    p.header.frame_id = robot.get_planning_frame()
+    p.pose.position.x = table_position[0]
+    p.pose.position.y = 0
+    p.pose.position.z = table_height - 0.5  # 0.5 = half length of moveit obstacle box
+    scene.add_box("table", p, (1, 2, 1))
+    print("Table Added to Planning Scene (Verify height with Point Cloud in Real Robot)")
+    rospy.sleep(1.0)
+    reset_arm_stow(group)
+    
+    
+    ### ----------------------- start main grasping loop over all objects ---------------------- ###
+    object_to_grasp = constants.YCBID_MAP[oid]
+    objects_in_scene = [object_to_grasp]
+    gt_experiment_data_file = os.path.join(exp_dir, f"gt_exp_data_{object_to_grasp}.pk") #! What is the data? (Readme)
+
+    # Sets up boundaries and objects in moveit scene
+    setup_moveit_scene( 
+        scene=scene, 
+        table_height=table_height,
+        object_names=objects_in_scene, 
+        models_path=model_dir, 
+        pose_method=pose_method, 
+        gt_file_path=gt_experiment_data_file, 
+        gt_metadata=gt_experiment_data
+    )
+
+    RT_obj = get_pose(object_to_grasp, pose_method)
+    if RT_obj is None:
+        log_message = f"{object_to_grasp} pose in scene {args.scene_idx} not found using {pose_method} pose estimation"
+        print(log_message)
+        logger.error(log_message)
+        sys.exit(1)
+    print("[LOG] pose ... :", object_to_grasp, RT_obj)
+    logger.pose(f"estimated_{object_to_grasp}_pose:\n{RT_obj}\n\n")
+    experiment_data["estimated_poses"][object_to_grasp] = RT_obj
+    write_pickle_file(experiment_data, experiment_data_file)
+
+    # Load grasp json file
+    grasp_file = os.path.join(grasp_dir, f"fetch_gripper-{object_to_grasp}.json") #! Specific data format not mentioned in Readme.md
+    if not os.path.exists(grasp_file):
+        log_message = f"Grasp Json File: {grasp_file} not found! exiting...."
+        logger.error(log_message)
+        print(log_message)
+        sys.exit(1)
+    RT_grasps_all, result_time, max_time = parse_grasps_isaac(grasp_file)   
+    num_available_grasps = RT_grasps_all.shape[0]
+    log_message = f"Num Grasps...{num_available_grasps}"
+    print(log_message)
+    logger.inform(log_message)
+
+    # for obj_i, object_to_grasp in enumerate(object_order): # For every object in the scene
+    for grasp_idx in range(num_available_grasps):
+        # for the current i
+        RT_grasps = RT_grasps_all[None, grasp_idx] # Basically give the current grasp as (1, 4, 4) matrix to sort/filter
+        grasp_num, trajectory_standoff, trajectory_final = None, None, None
+        gripper.open()        
+
+        RT_gripper = get_gripper_rt(tf_buffer) # gets pose RT of end effector frame (make frame name input to script)
+        RT_cam = get_tf_pose(target_frame='head_camera_rgb_optical_frame', base_frame='base_link')
+        print("RT_gripper, RT_cam\n", RT_gripper, RT_cam)
+
+        # Filter and sort grasps...note here we pass RT_cam as the first arg
+        RT_grasps_base, grasp_index, pruned_ratio = sort_and_filter_grasps(
+            RT_cam,
+            RT_gripper,
+            RT_grasps,
+            table_height
+        )
+        print(f"grasp index {grasp_index}, object to grasp {object_to_grasp}")
+
+        if (grasp_index is None ): #! If no grasp is possible
+            log_message = "Grasp index is none ... all grasp filtered out even before planning! Trying next grasp...."
+            logger.error(log_message)
+            print(log_message)
+            continue
+
+        # Else cotinue to grasp planning
+        RT_grasp, grasp_num, trajectory_standoff, trajectory_final = plan_grasp(
+            group,
+            scene,
+            display_trajectory_publisher,
+            RT_grasps_base,
+            grasp_index,
+            object_to_grasp,
+            RT_obj,
+            model_dir,
+            [], #! Successful grasps info calculated before hand (not using it with isaac sim grasps)
+        )
+        
+        # Exit code for plan_grasp(): Returning an exit code to catch it here so that we can still continue on to the next trial
+        if (grasp_num == -1 or (not trajectory_standoff) or (not trajectory_final)): 
+            log_message = "No motion plans found for direct grasping, trying next grasp!" 
+            print(log_message)
+            logger.warning(log_message)
+            continue
+        elif trajectory_standoff and trajectory_final and grasp_num != -1:
+            # Perform the grasp!
+            grasp_with_rt(
+                gripper,
+                group,
+                scene,
+                object_to_grasp,
+                display_trajectory_publisher,
+                RT_grasp,
+            )
+        logger.inform(f"{object_to_grasp} Grasped successfully at grasp idx {grasp_idx}")
+
+
+        # ------------------------ LIFTING OBJECT --------------------------#
+        #! errors will arise from this gripper fully closed or fully open with new fingers # Force torque based determination of object in hand
+        if gripper.is_fully_closed() or gripper.is_fully_open(): # Grasp has already been determined as a failure
+            print("Gripper fully open/closed after Grasping!")
+            # TODO: LOG Grasping failure to log file with scene_id, object name, pose method, and order (all exp params)
+            logger.failure_gripper(f"Gripper fully open/closed (after Grasping) scene--{args.scene_idx} object_name--{object_to_grasp} pose_method--{args.pose_method} ordering--{args.obj_order}")
+          
+            # The gripper should come up immediately if it fails a grasp)
+            print("Lifting gripper to remove any collisions")
+            
+            RT_gripper = get_gripper_rt(tf_buffer)
+            print("RT_gripper before lifting\n", RT_gripper)
+            
+            group.stop()
+            group.clear_pose_targets()
+            
+            # lift_arm_cartesian(#! Emergency lift (release pressure)
+            #     group,
+            #     RT_gripper, 
+            #     avoid_collisions=False, 
+            #     z_offset=0.01, 
+            #     n_wps = 3
+            #     ) 
+        else:          
+            print("Trying to lift object")
+            RT_gripper = get_gripper_rt(tf_buffer)
+            print("RT_gripper before lifting\n", RT_gripper)
+
+            #input("READY TO LIFT (DON'T enter anything)")
+            
+            # lift_arm_twist(group) # NOTE: Disable in simulation and enable in real world 
+            lift_arm_cartesian(group,
+                                RT_gripper,
+                                z_offset=0.25,
+                                avoid_collisions=True,
+                                n_wps=10,
+                            )
+            rospy.sleep(2)
+
+            x = None
+            while x != "next":
+                x = input('Lifted well? Move to dropoff?, "Y/y" to proceed ... "N"/"n" to next step: ').lower()
+                if x == "n" or x == "y":
+                    break
+            
+            if x == 'y':
+                # ----------------------- MOVING OBJECT ------------------------# #! Task completion
+                if gripper.is_fully_closed() or gripper.is_fully_open():
+                    print("Gripper fully open/closed (after Lifting)....Not Moving!")
+                    # TODO: LOG Lifting failure to log file
+                    logger.failure_gripper("Gripper fully open/closed (after Lifting)....Not Moving!")
+                else:
+                    logger.inform(f"{object_to_grasp} successfully lifted")
+                    print("Trying to move object")
+                    RT_gripper = get_gripper_rt(tf_buffer)
+                    rotate_gripper(group, RT_gripper) 
+                    # rotate_gripper_twist(group)
+
+                    RT_gripper = get_gripper_rt(tf_buffer)
+                    print("RT_gripper after lift\n", RT_gripper)
+                    move_arm_to_dropoff(
+                        group, 
+                        RT_gripper,
+                        table_height, 
+                        x_final=0.78,
+                        n_wps= 3,
+                        ) 
+
+                    if gripper.is_fully_closed() or gripper.is_fully_open(): 
+                        print("Gripper fully open/closed (after Moving)....")
+                        # TODO: LOG Moving failure to log file
+                        logger.failure_dropoff("Gripper fully open/closed (after Moving).... ")
+                    logger.inform(f"{object_to_grasp} successfully droppedoff")
+
+        # ------------------------ OPEN GRIPPER & STOW ---------------------#
+        input("Open Gripper??")
+        gripper.open()
+        print("STOWING THE GRIPPER")
+        reset_arm_stow(group)
+
+        x = None
+        while x != "next":
+            x = input('Input "next" to proceed, "N"/"n" to abort: ').lower()
+            if x == "n":
+                sys.exit(1)
+            
+        
+        

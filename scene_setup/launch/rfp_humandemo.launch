@@ -22,7 +22,15 @@
   </node-->
 
   <!-- Launch bench_model_based_grasping.py with specified arguments -->
-  <node name="bench_rfp_humandemo_modelbased" pkg="scene_setup" type="bench_rfp_humandemo_modelbased.py" output="screen"
-      args = "--grasp_dir $(arg grasp_dir) --scene_idx $(arg scene_idx) --pose_method $(arg pose_method) --obj_order $(arg obj_order) --data_dir $(arg data_dir) --scene_dir $(arg scene_dir) -sg $(arg sgrasp_file) --table_height $(arg table_height)"/>
+  <!-- Change type=bench_rfp_humandemo_modelbased.py OR type=bench_rfp_humandemo_sequential.py-->
+  <node 
+      name="bench_rfp_humandemo_modelbased" 
+      pkg="scene_setup" 
+      type="bench_rfp_humandemo_sequential.py"  
+      output="screen" 
+      args="--grasp_dir $(arg grasp_dir) --scene_idx $(arg scene_idx) --pose_method $(arg pose_method) --obj_order $(arg obj_order) --data_dir $(arg data_dir) --scene_dir $(arg scene_dir) -sg $(arg sgrasp_file) --table_height $(arg table_height)"
+   />
+
+
 
 </launch>

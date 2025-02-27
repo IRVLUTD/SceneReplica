@@ -38,3 +38,4 @@ YCBID_MAP = {
 
 VALID_POSE_METHODS = {"gazebo", "poserbpf", "posecnn", "isaac", "gdrnpp"}
 
+HDEMO_STANDOFF_DIST = 0.025
