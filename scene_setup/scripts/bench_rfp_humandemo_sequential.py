@@ -241,8 +241,7 @@ def grasp_with_rt(
     group.execute(trajectory, wait=True)
     group.stop()
     group.clear_pose_targets()
-
-    # scene.remove_world_object(object_name) # Remove object from planning scene
+    scene.remove_world_object(object_name) # Remove object from planning scene
 
     # waypoints = []
     # wpose = group.get_current_pose().pose
