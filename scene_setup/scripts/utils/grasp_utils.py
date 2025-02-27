@@ -614,7 +614,7 @@ def lift_arm_pose(group, confirm=True):
     group.clear_pose_targets()
 
 
-def get_standoff_wp_poses(standoff_dist=0.1, tail_len=3, extra_off=0.01): 
+def get_standoff_wp_poses(standoff_dist=0.1, tail_len=3, extra_off=0.013): 
     """
     For any 6Dof Grasp pose (as 4x4 tf), compute the standoffpose and waypoints along
     the direction from standoff to final pose.
@@ -629,8 +629,8 @@ def get_standoff_wp_poses(standoff_dist=0.1, tail_len=3, extra_off=0.01):
                                     gripper frame. So just premultiply with RT_gripper to get in global frame.
     """
     offset = -standoff_dist * np.linspace(0, 1, tail_len)[::-1] 
-    #offset = np.append(offset, [extra_off])
-    #tail_len += 1 #! It adds unpredictability to grasps
+    offset = np.append(offset, [extra_off])
+    tail_len += 1 #! It adds unpredictability to grasps
     # This could lead to collisions with the table and  
     # It could also makes it squash objects in top down grasps
     pose_standoff = np.tile(np.eye(4), (tail_len, 1, 1))

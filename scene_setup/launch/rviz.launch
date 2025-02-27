@@ -7,6 +7,6 @@
         args="--index $(arg index)" />
 
   <!-- Launch RViz with the specified configuration file -->
-  <node name="rviz" pkg="rviz" type="rviz" output="screen" 
+  <node name="rviz_scene_overlay" pkg="rviz" type="rviz" output="screen" 
         args="-d $(find scene_setup)/config/scene_setup.rviz" />
 </launch>

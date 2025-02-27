@@ -53,6 +53,7 @@ from transforms3d.quaternions import mat2quat, quat2mat
 
 import utils.constants as constants
 
+HDEMO_FRACTION = constants.FRACTION
 HDEMO_STANDOFF_DIST = constants.HDEMO_STANDOFF_DIST
 
 def get_tf_pose(target_frame, base_frame=None, is_matrix=False):
@@ -161,7 +162,7 @@ def plan_grasp(
             scene.add_mesh(obj_name, p, obj_mesh_path)
 
             print(f"Gidx {idx} fraction: {fraction}")
-            if fraction >= 0.05: # If it is atleast 3 mm close to target
+            if fraction >= HDEMO_FRACTION: # If it is atleast 3 mm close to target
                 print("Found FULL PLAN!")
                 return RT_grasp, idx, trajectory, plan_standoff
                 
@@ -848,13 +849,13 @@ if __name__ == "__main__":
             RT_gripper = get_gripper_rt(tf_buffer)
             # print("RT_gripper before lifting\n", RT_gripper)
             # input("READY TO LIFT (DON'T enter anything)")
-            # lift_arm_twist(group) # NOTE: Disable in simulation and enable in real world
-            lift_arm_cartesian(group,
-                                RT_gripper,
-                                z_offset=0.25,
-                                avoid_collisions=True,
-                                n_wps=10,
-                            )
+            lift_arm_twist(group) # NOTE: Disable in simulation and enable in real world
+            # lift_arm_cartesian(group,
+            #                     RT_gripper,
+            #                     z_offset=0.25,
+            #                     avoid_collisions=True,
+            #                     n_wps=10,
+            #                 )
             rospy.sleep(2)
 
             # x = None
