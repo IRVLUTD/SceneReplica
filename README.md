@@ -229,7 +229,7 @@ Check the `env_cgnet.yml` env file in the reference repo.
   - If you dont want to see generated grasp viz, remove the `--viz` flag from shell script  
 
 ### Motion Planning Methods
-Majority of the work utilize [`MoveIt`](https://docs.ros.org/en/kinetic/api/moveit_tutorials/html/doc/getting_started/getting_started.html). 
+Majority of the work utilize [`OMPL`](https://github.com/ompl/ompl?tab=readme-ov-file). 
 
 #### Grasping Trajectory Optimization (GTO)
 Reference repo: [`GTO`](https://github.com/IRVLUTD/GraspTrajOpt)
