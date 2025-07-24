@@ -228,6 +228,14 @@ Check the `env_cgnet.yml` env file in the reference repo.
   - In case GPU usage is too high, (check via `nvidia-smi`): reduce the number for `--forward_passes` flag in shell script
   - If you dont want to see generated grasp viz, remove the `--viz` flag from shell script  
 
+### Motion Planning Methods
+Majority of the work utilize [`MoveIt`](https://docs.ros.org/en/kinetic/api/moveit_tutorials/html/doc/getting_started/getting_started.html). 
+
+#### Grasping Trajectory Optimization (GTO)
+Reference repo: [`GTO`](https://github.com/IRVLUTD/GraspTrajOpt)
+
+Instructions to run SceneReplica Benchmark using GTO can be found here: [`running-with-real-robots`](https://github.com/IRVLUTD/GraspTrajOpt?tab=readme-ov-file#running-with-real-robots)
+
 
 # Misc
 
