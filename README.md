@@ -219,7 +219,9 @@ Reference repo: [`IRVLUTD/ pytorch_6dof-graspnet`](https://github.com/IRVLUTD/py
 #### Contact GraspNet
 Reference repo: [`IRVLUTD/contact_graspnet`](https://github.com/IRVLUTD/contact_graspnet)
 
-**NOTE:** This has a different conda environment (`contact_graspnet`) than others due to a tensorflow dependency.
+**NOTE:** Please use the ```ros``` branch. ```git checkout ros```.
+
+This has a different conda environment (`contact_graspnet`) than others due to a tensorflow dependency.
 Check the `env_cgnet.yml` env file in the reference repo.
 
 - `cd contact_graspnet`
